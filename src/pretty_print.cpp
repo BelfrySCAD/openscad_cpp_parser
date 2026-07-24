@@ -250,7 +250,36 @@ std::string fmtMultilineArgsGeneric(const std::string& head, const std::vector<s
     std::vector<std::string> lines;
     for (size_t i = 0; i < formattedArgs.size(); ++i) {
         std::string terminator = (i + 1 < formattedArgs.size()) ? "," : "";
-        lines.push_back(innerPad + appendTerminatorSafely(formattedArgs[i], terminator));
+        const std::string& item = formattedArgs[i];
+        // A rendered arg beginning with a bare "//" line (from a leading
+        // CommentLine on this value -- see fmtCommentedExpr) can't stay on
+        // its own fresh line here: nothing would precede it there, so
+        // re-parsing would misclassify it as a *standalone* comment
+        // instead of staying attached to this argument, losing the
+        // association (a real round-trip bug this fixes). Move that first
+        // line onto the end of the previous argument's own line instead --
+        // mirrors how fmtListComprehension already renders the same
+        // situation for list elements. The remainder (if any) already
+        // carries fmtCommentedExpr's own innerPad-width indent, baked in
+        // when it joined that value onto its own continuation line, so it
+        // must NOT be indented again here.
+        if (startsWith(item, "//")) {
+            size_t nl = item.find('\n');
+            std::string commentLine = (nl == std::string::npos) ? item : item.substr(0, nl);
+            std::string rest = (nl == std::string::npos) ? "" : item.substr(nl + 1);
+            if (!lines.empty()) {
+                lines.back() += "  " + commentLine;
+            } else {
+                lines.push_back(innerPad + commentLine);
+            }
+            if (!rest.empty()) {
+                lines.push_back(appendTerminatorSafely(rest, terminator));
+            } else {
+                lines.back() = appendTerminatorSafely(lines.back(), terminator);
+            }
+            continue;
+        }
+        lines.push_back(innerPad + appendTerminatorSafely(item, terminator));
     }
     return head + "(\n" + join(lines, "\n") + "\n" + pad + ")";
 }

@@ -281,15 +281,22 @@ TEST(PrettyPrint, MultipleLeadingLineCommentsOnExpression) {
     // Two leading `//` comments, each on its own argument (both classified
     // inline since something precedes each on its own line) -- exercises
     // the multi-comment leading-line-comment path in fmtCommentedExpr, not
-    // just a single one. Not idempotent (a real, pre-existing quirk: the
-    // printed one-comment-per-line form re-parses with each comment
-    // attaching to a different argument than the first parse gave it) --
-    // asserting on the first print's shape only, not full round-trip
-    // stability, since that's a separate concern from this file's own
-    // coverage gap.
+    // just a single one.
+    //
+    // This used to NOT be idempotent: fmtMultilineArgsGeneric printed each
+    // leading line-comment on its own fresh line ("foo(\n    a,\n    //
+    // one\n    b,\n..."), which re-parses wrong -- a `//` comment with
+    // nothing before it on its own line is classified *standalone*, not
+    // inline, so re-parsing split it off into its own top-level node
+    // instead of keeping it attached to `b`. Fixed by moving a leading
+    // "//..."  line onto the end of the *previous* argument's own line
+    // instead (mirrors how fmtListComprehension already handles the same
+    // situation for list elements) -- see fmtMultilineArgsGeneric's own
+    // comment for the full story.
+    expectStablePrintWithComments("foo(a // one\n, b // two\n, c);\n");
     std::string out = toOpenscad(getASTFromString("foo(a // one\n, b // two\n, c);\n", /*includeComments=*/true));
-    EXPECT_NE(out.find("// one"), std::string::npos);
-    EXPECT_NE(out.find("// two"), std::string::npos);
+    EXPECT_NE(out.find("a,  // one"), std::string::npos);
+    EXPECT_NE(out.find("b,  // two"), std::string::npos);
 }
 
 TEST(PrettyPrint, TernaryNestedInTrueBranch) {
@@ -346,16 +353,64 @@ TEST(PrettyPrint, LongPrimaryCallExpressionWraps) {
 // actual observed behavior rather than asserting the field population
 // that doesn't happen. joinComments'/fmtParameter's own leading/trailing-
 // comment loops stay permanently unreachable as a result.
-TEST(PrettyPrint, ParameterAdjacentCommentFallsThroughToBody) {
+TEST(PrettyPrint, ParameterAdjacentCommentAttachesToParameter) {
+    // Used to fall through to the function BODY's own leading comment
+    // (ParameterDeclaration.leadingComments was declared, serialized, and
+    // rendered, but never populated by the comment-attachment pipeline --
+    // addParameterExprList only treats a parameter as a wrappable
+    // Expression slot when it HAS a default value, so a bare `x` was never
+    // even a candidate). Fixed by claimDeclSignatureComments
+    // (inline_comment_attach.cpp), which claims signature-gap comments
+    // before the generic exprField-based mechanism ever sees them.
+    expectStablePrintWithComments("function f(/* lead */ x) = x;\n");
     std::string out = toOpenscad(getASTFromString("function f(/* lead */ x) = x;\n", /*includeComments=*/true));
-    EXPECT_NE(out.find("/* lead */"), std::string::npos);
-    EXPECT_EQ(out.find("(/* lead */ x)"), std::string::npos) << "not actually attached to the parameter";
+    EXPECT_NE(out.find("(/* lead */ x)"), std::string::npos);
 }
 
-TEST(PrettyPrint, DeclarationNameAdjacentCommentFallsThroughToBody) {
+TEST(PrettyPrint, DeclarationNameAdjacentCommentAttachesNearName) {
+    // Used to fall through to the function body for the same reason as
+    // above -- preNameComments/postNameComments/postParamsComments were
+    // also declared-but-never-populated. This exercises postNameComments
+    // specifically (a comment between the name and '(' -- claimed via a
+    // raw-text scan for the '(' token, since the grammar doesn't capture
+    // its own position).
+    expectStablePrintWithComments("function f /* post-name */ (x) = x;\n");
+    std::string out = toOpenscad(getASTFromString("function f /* post-name */ (x) = x;\n", /*includeComments=*/true));
+    EXPECT_NE(out.find("function f /* post-name */("), std::string::npos);
+}
+
+TEST(PrettyPrint, PreNameCommentAttachesBeforeName) {
+    expectStablePrintWithComments("function /* pre */ f(x) = x;\n");
     std::string out = toOpenscad(getASTFromString("function /* pre */ f(x) = x;\n", /*includeComments=*/true));
-    EXPECT_NE(out.find("/* pre */"), std::string::npos);
-    EXPECT_EQ(out.find("function /* pre */ f"), std::string::npos) << "not actually attached near the name";
+    EXPECT_NE(out.find("function /* pre */ f"), std::string::npos);
+}
+
+TEST(PrettyPrint, PostParamsCommentAttachesAfterCloseParen) {
+    expectStablePrintWithComments("module m(x) /* post-params */ { cube(x); }\n");
+    std::string out = toOpenscad(getASTFromString("module m(x) /* post-params */ { cube(x); }\n", /*includeComments=*/true));
+    EXPECT_NE(out.find(") /* post-params */"), std::string::npos);
+}
+
+TEST(PrettyPrint, TrailingCommentOnLastParameterAttachesToParameter) {
+    expectStablePrintWithComments("module m(x /* trail */) { cube(x); }\n");
+    std::string out = toOpenscad(getASTFromString("module m(x /* trail */) { cube(x); }\n", /*includeComments=*/true));
+    EXPECT_NE(out.find("x /* trail */)"), std::string::npos);
+}
+
+TEST(PrettyPrint, CommentInEmptyParameterListAttachesToPostParams) {
+    // No parameter exists to own this comment, so it's folded into
+    // postParamsComments (rendered after the closing paren) rather than
+    // some dedicated "inside empty parens" slot -- see
+    // claimDeclSignatureComments' own ponytail comment.
+    expectStablePrintWithComments("module m(/* empty */) { cube(1); }\n");
+    std::string out = toOpenscad(getASTFromString("module m(/* empty */) { cube(1); }\n", /*includeComments=*/true));
+    EXPECT_NE(out.find("m() /* empty */ {"), std::string::npos);
+}
+
+TEST(PrettyPrint, CommentBetweenTwoParametersAttachesToSecond) {
+    expectStablePrintWithComments("module m(x, /* mid */ y) { cube(x + y); }\n");
+    std::string out = toOpenscad(getASTFromString("module m(x, /* mid */ y) { cube(x + y); }\n", /*includeComments=*/true));
+    EXPECT_NE(out.find(", /* mid */ y"), std::string::npos);
 }
 
 TEST(PrettyPrint, ListCompForLongAssignmentsWrap) {

@@ -374,6 +374,96 @@ void classifyNode(ASTNode& node, std::vector<ExprSlot>& exprFields, std::vector<
 int startOffsetOf(const ASTNode& n) { return n.position().start_offset; }
 int endOffsetOf(const ASTNode& n) { return n.position().end_offset; }
 
+// Scans raw source from `from` for the next occurrence of `ch`, skipping
+// over any already-extracted comment span encountered along the way (so a
+// stray '(' or ')' inside a comment's own text is never mistaken for the
+// real token). Returns -1 if not found. The grammar doesn't capture a
+// location for the parameter list's own '(' / ')' tokens (only NAME and the
+// whole declaration's span are available -- see driver.cpp's
+// makeFunctionDeclaration/makeModuleDeclaration/makeParameterDeclaration),
+// so this is the only way to recover their real positions.
+int findCharSkippingComments(const std::string& code, int from, char ch,
+                              const std::vector<std::unique_ptr<ASTNode>>& comments) {
+    size_t i = static_cast<size_t>(from);
+    while (i < code.size()) {
+        bool skipped = false;
+        for (const auto& c : comments) {
+            if (c && startOffsetOf(*c) == static_cast<int>(i)) {
+                i = static_cast<size_t>(endOffsetOf(*c));
+                skipped = true;
+                break;
+            }
+        }
+        if (skipped) {
+            continue;
+        }
+        if (code[i] == ch) {
+            return static_cast<int>(i);
+        }
+        ++i;
+    }
+    return -1;
+}
+
+// Moves every still-live CommentSpan in `comments` whose start offset falls
+// in [lo, hi) into `out`, nulling its slot in `comments` (same "claim by
+// nulling" convention attachInlineComments/walkAttach already use).
+void claimCommentSpansInRange(int lo, int hi, std::vector<std::unique_ptr<CommentSpan>>& out,
+                               std::vector<std::unique_ptr<ASTNode>>& comments) {
+    if (lo >= hi) {
+        return;
+    }
+    for (auto& c : comments) {
+        if (!c || c->kind() != NodeKind::CommentSpan) {
+            continue;
+        }
+        int cs = startOffsetOf(*c);
+        if (cs >= lo && cs < hi) {
+            out.push_back(std::unique_ptr<CommentSpan>(static_cast<CommentSpan*>(c.release())));
+        }
+    }
+}
+
+// Claims comments in every structural gap of one FunctionDeclaration/
+// ModuleDeclaration signature: before the name, between the name and '(',
+// between adjacent parameters (or leading/trailing a lone parameter),
+// between the last parameter and ')', and between ')' and the body.
+//
+// ponytail: when there are zero parameters, the "between name and '('" and
+// "between '(' and ')'" gaps are both real but there's no parameter to own
+// the latter -- folded into postParamsComments rather than adding a
+// dedicated field nothing in either language's AST declares.
+void claimDeclSignatureComments(const ASTNode& decl, std::unique_ptr<Identifier>& name,
+                                 std::vector<std::unique_ptr<ParameterDeclaration>>& parameters, int bodyStart,
+                                 std::vector<std::unique_ptr<CommentSpan>>& preName,
+                                 std::vector<std::unique_ptr<CommentSpan>>& postName,
+                                 std::vector<std::unique_ptr<CommentSpan>>& postParams, const std::string& code,
+                                 std::vector<std::unique_ptr<ASTNode>>& comments) {
+    int nameStart = startOffsetOf(*name);
+    int nameEnd = endOffsetOf(*name);
+    claimCommentSpansInRange(startOffsetOf(decl), nameStart, preName, comments);
+
+    int openParen = findCharSkippingComments(code, nameEnd, '(', comments);
+    int parenOpenPos = (openParen >= 0) ? openParen : nameEnd;
+    claimCommentSpansInRange(nameEnd, parenOpenPos, postName, comments);
+    int cursor = (openParen >= 0) ? openParen + 1 : nameEnd;
+
+    for (auto& p : parameters) {
+        claimCommentSpansInRange(cursor, startOffsetOf(*p), p->leadingComments, comments);
+        cursor = endOffsetOf(*p);
+    }
+
+    int closeParen = findCharSkippingComments(code, cursor, ')', comments);
+    int parenClosePos = (closeParen >= 0) ? closeParen : cursor;
+    if (!parameters.empty()) {
+        claimCommentSpansInRange(cursor, parenClosePos, parameters.back()->trailingComments, comments);
+    } else {
+        claimCommentSpansInRange(cursor, parenClosePos, postParams, comments);
+    }
+    cursor = (closeParen >= 0) ? closeParen + 1 : cursor;
+    claimCommentSpansInRange(cursor, bodyStart, postParams, comments);
+}
+
 // Recursively attaches unused entries of `comments` (sorted by
 // start_offset; a used entry is left null) to expressions within `node`'s
 // span. Mirrors _walk_attach.
@@ -496,7 +586,44 @@ void attachTrailingToLastExpr(ASTNode& node, std::unique_ptr<ASTNode> comment) {
     slot.put(std::move(wrapped));
 }
 
+// Recurses through `node` looking for FunctionDeclaration/ModuleDeclaration
+// nodes (which can nest inside a module's own children), claiming their
+// signature-gap comments via claimDeclSignatureComments. Reuses
+// classifyNode purely as a generic "what are this node's children" walk,
+// exactly like walkAttach does.
+void walkAttachDeclComments(ASTNode& node, const std::string& code, std::vector<std::unique_ptr<ASTNode>>& comments) {
+    if (node.kind() == NodeKind::FunctionDeclaration) {
+        auto& n = static_cast<FunctionDeclaration&>(node);
+        claimDeclSignatureComments(node, n.name, n.parameters, startOffsetOf(*n.expr), n.preNameComments, n.postNameComments,
+                                    n.postParamsComments, code, comments);
+    } else if (node.kind() == NodeKind::ModuleDeclaration) {
+        auto& n = static_cast<ModuleDeclaration&>(node);
+        int bodyStart = n.children.empty() ? endOffsetOf(node) : startOffsetOf(*n.children.front());
+        claimDeclSignatureComments(node, n.name, n.parameters, bodyStart, n.preNameComments, n.postNameComments,
+                                    n.postParamsComments, code, comments);
+    }
+
+    std::vector<ExprSlot> exprFields;
+    std::vector<ASTNode*> nonExprChildren;
+    classifyNode(node, exprFields, nonExprChildren);
+    for (auto* child : nonExprChildren) {
+        walkAttachDeclComments(*child, code, comments);
+    }
+    for (auto& slot : exprFields) {
+        walkAttachDeclComments(*slot.current, code, comments);
+    }
+}
+
 } // namespace
+
+void attachDeclarationComments(std::vector<std::unique_ptr<ASTNode>>& astNodes, const std::string& code,
+                                std::vector<std::unique_ptr<ASTNode>>& comments) {
+    for (auto& node : astNodes) {
+        if (node) {
+            walkAttachDeclComments(*node, code, comments);
+        }
+    }
+}
 
 void attachInlineComments(std::vector<std::unique_ptr<ASTNode>>& astNodes,
                            std::vector<std::unique_ptr<ASTNode>> inlineComments) {

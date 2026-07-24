@@ -184,9 +184,13 @@ std::vector<std::unique_ptr<ASTNode>> injectComments(std::vector<std::unique_ptr
 std::vector<std::unique_ptr<ASTNode>> attachComments(std::vector<std::unique_ptr<ASTNode>> astNodes, const std::string& code,
                                                        const std::string& origin) {
     auto comments = extractComments(code, origin);
+    attachDeclarationComments(astNodes, code, comments);
     std::vector<std::unique_ptr<ASTNode>> inlineComments;
     std::vector<std::unique_ptr<ASTNode>> standalone;
     for (auto& c : comments) {
+        if (!c) {
+            continue;
+        }
         if (isInlineComment(*c, code)) {
             inlineComments.push_back(std::move(c));
         } else {

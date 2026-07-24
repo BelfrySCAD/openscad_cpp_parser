@@ -160,6 +160,98 @@ TEST(InlineComments, TrailingCommentAfterUseStatementFallsThroughWithoutCrashing
     EXPECT_NE(dynamic_cast<ModularCall*>(ast[1].get()), nullptr);
 }
 
+// --- Declaration signature comments (preNameComments/postNameComments/
+// postParamsComments/ParameterDeclaration.leadingComments/trailingComments)
+// -- previously declared, serialized, and rendered, but never populated by
+// the comment-attachment pipeline. See claimDeclSignatureComments
+// (inline_comment_attach.cpp) for the fix.
+
+TEST(InlineComments, ParameterWithNoDefaultGetsLeadingComment) {
+    // The case the old generic exprField mechanism could never reach at
+    // all: a parameter with no default value is never a wrappable
+    // Expression slot (addParameterExprList only adds parameters that HAVE
+    // a defaultValue), so this comment used to fall through onto the
+    // function body instead.
+    auto ast = getASTFromString("function f(/* lead */ x) = x;\n", /*includeComments=*/true);
+    ASSERT_EQ(ast.size(), 1u);
+    auto* decl = dynamic_cast<FunctionDeclaration*>(ast[0].get());
+    ASSERT_NE(decl, nullptr);
+    ASSERT_EQ(decl->parameters.size(), 1u);
+    ASSERT_EQ(decl->parameters[0]->leadingComments.size(), 1u);
+    EXPECT_EQ(decl->expr->kind(), NodeKind::Identifier) << "must NOT have fallen through to the body";
+}
+
+TEST(InlineComments, PreNameCommentPopulatesField) {
+    auto ast = getASTFromString("function /* pre */ f(x) = x;\n", /*includeComments=*/true);
+    ASSERT_EQ(ast.size(), 1u);
+    auto* decl = dynamic_cast<FunctionDeclaration*>(ast[0].get());
+    ASSERT_NE(decl, nullptr);
+    ASSERT_EQ(decl->preNameComments.size(), 1u);
+}
+
+TEST(InlineComments, PostNameCommentPopulatesFieldViaParenScan) {
+    // Requires locating the real '(' token by scanning raw source (the
+    // grammar captures no location for it) -- exercises that scan directly,
+    // not just via the rendered/round-tripped output.
+    auto ast = getASTFromString("function f /* post-name */ (x) = x;\n", /*includeComments=*/true);
+    ASSERT_EQ(ast.size(), 1u);
+    auto* decl = dynamic_cast<FunctionDeclaration*>(ast[0].get());
+    ASSERT_NE(decl, nullptr);
+    ASSERT_EQ(decl->postNameComments.size(), 1u);
+}
+
+TEST(InlineComments, PostParamsCommentPopulatesField) {
+    auto ast = getASTFromString("module m(x) /* post-params */ { cube(x); }\n", /*includeComments=*/true);
+    ASSERT_EQ(ast.size(), 1u);
+    auto* decl = dynamic_cast<ModuleDeclaration*>(ast[0].get());
+    ASSERT_NE(decl, nullptr);
+    ASSERT_EQ(decl->postParamsComments.size(), 1u);
+}
+
+TEST(InlineComments, TrailingCommentOnLastParameterPopulatesField) {
+    auto ast = getASTFromString("module m(x /* trail */) { cube(x); }\n", /*includeComments=*/true);
+    ASSERT_EQ(ast.size(), 1u);
+    auto* decl = dynamic_cast<ModuleDeclaration*>(ast[0].get());
+    ASSERT_NE(decl, nullptr);
+    ASSERT_EQ(decl->parameters.size(), 1u);
+    ASSERT_EQ(decl->parameters[0]->trailingComments.size(), 1u);
+}
+
+TEST(InlineComments, EmptyParameterListCommentFallsIntoPostParams) {
+    // ponytail case: no parameter exists to own a comment inside `()`, so
+    // it's folded into postParamsComments rather than a dedicated field.
+    auto ast = getASTFromString("module m(/* empty */) { cube(1); }\n", /*includeComments=*/true);
+    ASSERT_EQ(ast.size(), 1u);
+    auto* decl = dynamic_cast<ModuleDeclaration*>(ast[0].get());
+    ASSERT_NE(decl, nullptr);
+    EXPECT_TRUE(decl->parameters.empty());
+    ASSERT_EQ(decl->postParamsComments.size(), 1u);
+}
+
+TEST(InlineComments, CommentBetweenTwoParametersAttachesToSecondsLeading) {
+    auto ast = getASTFromString("module m(x, /* mid */ y) { cube(x + y); }\n", /*includeComments=*/true);
+    ASSERT_EQ(ast.size(), 1u);
+    auto* decl = dynamic_cast<ModuleDeclaration*>(ast[0].get());
+    ASSERT_NE(decl, nullptr);
+    ASSERT_EQ(decl->parameters.size(), 2u);
+    EXPECT_TRUE(decl->parameters[0]->trailingComments.empty());
+    ASSERT_EQ(decl->parameters[1]->leadingComments.size(), 1u);
+}
+
+TEST(InlineComments, NestedModuleDeclarationInsideModuleBodyStillGetsOwnComments) {
+    // Confirms walkAttachDeclComments' recursion reaches a declaration
+    // nested inside another declaration's body, not just top-level ones.
+    auto ast = getASTFromString("module outer() { module inner(/* lead */ x) { cube(x); } }\n", /*includeComments=*/true);
+    ASSERT_EQ(ast.size(), 1u);
+    auto* outer = dynamic_cast<ModuleDeclaration*>(ast[0].get());
+    ASSERT_NE(outer, nullptr);
+    ASSERT_EQ(outer->children.size(), 1u);
+    auto* inner = dynamic_cast<ModuleDeclaration*>(outer->children[0].get());
+    ASSERT_NE(inner, nullptr);
+    ASSERT_EQ(inner->parameters.size(), 1u);
+    ASSERT_EQ(inner->parameters[0]->leadingComments.size(), 1u);
+}
+
 TEST(InlineComments, TwoStatementsEachWithOwnCommentSkipsAlreadyConsumedSlot) {
     // walkAttach's own per-comment classification loop re-scans the *whole*
     // shared comments vector at every node it visits -- so once the first
