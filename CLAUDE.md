@@ -69,7 +69,12 @@ public entry point, optionally splicing `include <...>` files together first via
   (variables/functions/modules) per `Scope`, parent-chain lookup, last-write-wins (no
   shadowing diagnostics), matching the Python reference exactly. `Scope` owns its child scopes;
   `ASTNode::scope()` is a non-owning pointer into that tree, valid as long as the root `Scope`
-  from `buildScopes()` is alive.
+  from `buildScopes()` is alive. `buildScopes()`/`collectHoistedDeclarations()` each have a second
+  overload taking `const std::vector<ASTNode*>&` (raw, non-owning) instead of
+  `vector<unique_ptr<ASTNode>>` — added for a consumer (openscad_cpp_evaluator's `use <file>`
+  resolution) that needs to build one scope over declaration nodes drawn from more than one
+  independently-owned AST vector at once, which can't be expressed as a single owning vector. Both
+  overloads share one implementation internally; the existing owning-vector overload is unchanged.
 - **Comments** (`comments.cpp`, `inline_comment_attach.cpp`): comments are stripped by the
   lexer during the main parse, then re-extracted from the raw source text in a second pass and
   spliced back in — standalone comments/blank lines as top-level nodes, inline comments

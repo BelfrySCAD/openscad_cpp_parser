@@ -42,6 +42,11 @@ std::vector<std::unique_ptr<ASTNode>> parseAst(const std::string& code, const st
 // gets its scope() populated. Mirrors scope.py's build_scopes().
 std::unique_ptr<Scope> buildScopes(const std::vector<std::unique_ptr<ASTNode>>& ast);
 
+// Same, but for nodes referenced by raw pointer -- see
+// collectHoistedDeclarations's raw-pointer overload (scope_builder.hpp) for
+// why this exists. Never takes ownership.
+std::unique_ptr<Scope> buildScopes(const std::vector<ASTNode*>& ast);
+
 // Parses `code`. Throws ParseError (with the full caret diagnostic) on a
 // syntax error.
 //
