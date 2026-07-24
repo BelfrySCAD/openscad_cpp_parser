@@ -13,4 +13,13 @@ std::unique_ptr<Scope> buildScopes(const std::vector<std::unique_ptr<ASTNode>>& 
     return root;
 }
 
+std::unique_ptr<Scope> buildScopes(const std::vector<ASTNode*>& ast) {
+    auto root = std::make_unique<Scope>();
+    collectHoistedDeclarations(ast, *root);
+    for (ASTNode* node : ast) {
+        node->buildScope(*root);
+    }
+    return root;
+}
+
 } // namespace oscad

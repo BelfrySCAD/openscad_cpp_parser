@@ -111,6 +111,20 @@ TEST(ScopeBuilderBasics, MultipleAssignments) {
     EXPECT_EQ(scope->lookupVariable("z"), ast[2].get());
 }
 
+// Raw-pointer overload: builds one scope over nodes owned by two separate
+// AST vectors, matching how a caller combining declarations pulled in from
+// another already-parsed file (e.g. `use <file>` resolution) needs to.
+TEST(ScopeBuilderBasics, RawPointerOverloadCombinesTwoOwningVectors) {
+    auto astA = parseSrc("x = 1;");
+    auto astB = parseSrc("y = 2;");
+    std::vector<ASTNode*> combined = {astA[0].get(), astB[0].get()};
+    auto scope = buildScopes(combined);
+    EXPECT_EQ(scope->lookupVariable("x"), astA[0].get());
+    EXPECT_EQ(scope->lookupVariable("y"), astB[0].get());
+    EXPECT_EQ(astA[0]->scope(), scope.get());
+    EXPECT_EQ(astB[0]->scope(), scope.get());
+}
+
 // -- Function scope -----------------------------------------------------
 
 TEST(FunctionScopeTest, InRoot) {
