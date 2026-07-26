@@ -39,4 +39,6 @@ target_include_directories(openscad_cpp_parser PRIVATE
   ${CMAKE_CURRENT_BINARY_DIR}
 )
 target_link_libraries(openscad_cpp_parser PUBLIC nlohmann_json::nlohmann_json)
-target_compile_options(openscad_cpp_parser PRIVATE -Wall -Wextra)
+target_compile_options(openscad_cpp_parser PRIVATE
+  $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra>
+)
