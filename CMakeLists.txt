@@ -7,6 +7,18 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# ponytail: MSVC always reports __cplusplus as 199711L regardless of the
+# actual /std: level, for legacy compatibility -- a long-standing MSVC-only
+# quirk, unless this flag opts into reporting the real value. Bison's own
+# generated variant.hh (parser.tab.hpp) branches its whole emplace/copy/move
+# API on `__cplusplus >= 201103L`; without this flag MSVC silently takes the
+# pre-C++11 copy-based branch, which then fails to compile for any move-only
+# %type (this grammar's NodePtr = unique_ptr<ASTNode>) with a "deleted copy
+# constructor" error that has nothing to do with our own code.
+if(MSVC)
+  add_compile_options(/Zc:__cplusplus)
+endif()
+
 # ponytail: macOS ships an ancient (GPLv2, 2.3) bison; point CMake at a
 # homebrew bison (3.5+) if one is present, since our grammar needs
 # %skeleton "lalr1.cc" + api.value.type variant support.
