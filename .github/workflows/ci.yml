@@ -24,10 +24,13 @@ jobs:
 
       - name: Install bison/flex (Windows)
         if: runner.os == 'Windows'
-        # winflexbison3 installs win_bison.exe/win_flex.exe (not
-        # literally named bison/flex) -- CMakeLists.txt's own WIN32 block
-        # points BISON_EXECUTABLE/FLEX_EXECUTABLE at those explicitly.
-        run: choco install winflexbison3 -y
+        # windows-latest ships MSYS2 pre-installed at C:\msys64 (not on
+        # PATH). Its bison (3.8.2) satisfies parser.y's %require "3.8";
+        # winflexbison3's Chocolatey package is stuck on bison 3.7.4 (2021
+        # release) and fails that check. CMakeLists.txt's own WIN32 block
+        # points BISON_EXECUTABLE/FLEX_EXECUTABLE straight at the MSYS2
+        # binaries.
+        run: C:\msys64\usr\bin\bash.exe -lc "pacman -Sy --noconfirm bison flex"
 
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release

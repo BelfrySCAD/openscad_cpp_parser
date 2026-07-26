@@ -16,24 +16,34 @@ elseif(APPLE AND EXISTS "/usr/local/opt/bison/bin/bison")
   set(BISON_EXECUTABLE "/usr/local/opt/bison/bin/bison" CACHE FILEPATH "Bison executable" FORCE)
 endif()
 
-# ponytail: Windows has no bison/flex at all by default; the winflexbison
-# Chocolatey package (`choco install winflexbison3`) provides win_bison.exe/
-# win_flex.exe on PATH, not binaries literally named bison/flex -- point
-# CMake at those explicitly (mirrors the macOS Homebrew override above)
-# rather than relying on FindBISON/FindFLEX's own search to happen to know
-# the Windows-specific name.
+# ponytail: Windows has no bison/flex at all by default. Prefer MSYS2's
+# (kept current -- our grammar needs 3.8+, see parser.y's %require) over the
+# winflexbison3 Chocolatey package, whose last release (2021) bundles bison
+# 3.7.4 -- confirmed too old by an actual CI failure ("require bison 3.8,
+# but have 3.7.4"), not assumed. MSYS2 ships pre-installed on GitHub's
+# windows-latest runner image at C:/msys64 (just not on PATH); falls back to
+# win_bison/win_flex (e.g. a local dev machine with winflexbison instead) if
+# that path doesn't exist.
 if(WIN32)
-  find_program(_win_bison_exe NAMES win_bison)
-  if(_win_bison_exe)
-    set(BISON_EXECUTABLE "${_win_bison_exe}" CACHE FILEPATH "Bison executable" FORCE)
+  if(EXISTS "C:/msys64/usr/bin/bison.exe")
+    set(BISON_EXECUTABLE "C:/msys64/usr/bin/bison.exe" CACHE FILEPATH "Bison executable" FORCE)
+  else()
+    find_program(_win_bison_exe NAMES win_bison)
+    if(_win_bison_exe)
+      set(BISON_EXECUTABLE "${_win_bison_exe}" CACHE FILEPATH "Bison executable" FORCE)
+    endif()
   endif()
-  find_program(_win_flex_exe NAMES win_flex)
-  if(_win_flex_exe)
-    set(FLEX_EXECUTABLE "${_win_flex_exe}" CACHE FILEPATH "Flex executable" FORCE)
+  if(EXISTS "C:/msys64/usr/bin/flex.exe")
+    set(FLEX_EXECUTABLE "C:/msys64/usr/bin/flex.exe" CACHE FILEPATH "Flex executable" FORCE)
+  else()
+    find_program(_win_flex_exe NAMES win_flex)
+    if(_win_flex_exe)
+      set(FLEX_EXECUTABLE "${_win_flex_exe}" CACHE FILEPATH "Flex executable" FORCE)
+    endif()
   endif()
 endif()
 
-find_package(BISON 3.5 REQUIRED)
+find_package(BISON 3.8 REQUIRED)
 find_package(FLEX REQUIRED)
 
 include(FetchContent)
