@@ -57,7 +57,10 @@ private:
 };
 
 void writeFile(const fs::path& p, const std::string& content) {
-    std::ofstream out(p);
+    // Binary mode: see the identical comment in test_source_map.cpp's own
+    // writeFile -- avoids Windows text-mode \r\n injection that the
+    // production reader (binary mode) would then faithfully preserve.
+    std::ofstream out(p, std::ios::binary);
     out << content;
 }
 

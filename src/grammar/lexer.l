@@ -59,7 +59,10 @@ const std::unordered_map<std::string, KeywordFactory>& keywordTable() {
 #define YY_USER_ACTION updateLocation(driver, yytext, yyleng);
 %}
 
-%option noyywrap nounput noinput never-interactive
+/* nounistd: MSVC/Windows has no <unistd.h>; flex only includes it for
+ * isatty()/POSIX I/O we never use (never-interactive already disables the
+ * interactive-terminal codepath), so this is a no-op everywhere else. */
+%option noyywrap nounput noinput never-interactive nounistd
 %x STR
 %x INCFILE
 

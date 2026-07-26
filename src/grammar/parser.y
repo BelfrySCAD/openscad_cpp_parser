@@ -4,6 +4,13 @@
 
 %define api.token.constructor
 %define api.value.type variant
+// NodePtr (unique_ptr<ASTNode>) is move-only. Every action already moves it
+// explicitly (std::move($1) etc.), which is enough for GCC/Clang, but
+// MSVC's more eager template instantiation of value_type::copy<T> (used
+// internally by emplace<T>, referenced whether or not it's ever actually
+// called at runtime) fails to compile for a non-copyable T without this --
+// the Bison manual's own documented fix for move-only semantic types.
+%define api.value.automove
 %define parse.error verbose
 %locations
 
