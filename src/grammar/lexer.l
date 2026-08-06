@@ -93,13 +93,17 @@ NUMLIT  0[xX][0-9A-Fa-f]+|[0-9]+([.][0-9]*)?([eE][+-]?[0-9]+)?|[.][0-9]+([eE][+-
 
 \" {
     driver.stringBuffer.clear();
+    // YY_USER_ACTION has just set tokenStart to this opening quote; keep
+    // it, because the rules that follow will overwrite it (see
+    // ParserDriver::stringStart).
+    driver.stringStart = driver.tokenStart;
     BEGIN(STR);
 }
 <STR>\\. { driver.stringBuffer.append(yytext, yyleng); }
 <STR>[^"\\]+ { driver.stringBuffer.append(yytext, yyleng); }
 <STR>\" {
     BEGIN(INITIAL);
-    return yy::parser::make_STRING(driver.stringBuffer, driver.currentTokenLoc());
+    return yy::parser::make_STRING(driver.stringBuffer, driver.stringTokenLoc());
 }
 
 <INCFILE>[ \t\r\n]+       { /* skip whitespace before < */ }

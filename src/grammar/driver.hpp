@@ -49,6 +49,18 @@ public:
     LexPos tokenEnd;
     std::string stringBuffer; // accumulates a STRING token's content while in the %x STR lexer state
 
+    // Where the opening quote of the STRING currently being lexed began.
+    //
+    // Needed because YY_USER_ACTION resets tokenStart on EVERY rule match,
+    // and a string is matched by several rules (opening quote, content
+    // runs, escapes, closing quote). currentTokenLoc() at the closing
+    // quote therefore describes just that one character, which made every
+    // StringLiteral's source span a single `"` -- and dragged the span of
+    // anything wrapping it (a PositionalArgument, a vector element) along
+    // with it. Recorded when the opening quote is matched and used by
+    // stringTokenLoc() below.
+    LexPos stringStart;
+
     Position toPosition(const OscadLocation& loc) const {
         return Position{origin_, loc.first_line, loc.first_column, loc.first_offset, loc.last_offset};
     }
@@ -56,6 +68,15 @@ public:
     OscadLocation currentTokenLoc() const {
         return OscadLocation{tokenStart.line,  tokenStart.column, tokenEnd.line,
                               tokenEnd.column, tokenStart.offset, tokenEnd.offset};
+    }
+
+    // As currentTokenLoc(), but spanning from the string's OPENING quote
+    // (stringStart) to the current token's end -- i.e. the whole literal
+    // including both quotes, which is what a caller slicing the source by
+    // this span expects to get back.
+    OscadLocation stringTokenLoc() const {
+        return OscadLocation{stringStart.line,  stringStart.column, tokenEnd.line,
+                              tokenEnd.column,  stringStart.offset, tokenEnd.offset};
     }
 
     void reportError(const OscadLocation& loc, const std::string& message);

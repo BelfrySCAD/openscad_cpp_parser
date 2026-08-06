@@ -363,3 +363,76 @@ TEST(LexicalIdentifiers, IdentifierStr) {
     std::vector<std::unique_ptr<ASTNode>> ast;
     EXPECT_EQ(exprSrc("foo", ast)->toString(), "foo");
 }
+
+// -- Source spans ---------------------------------------------------------
+
+namespace {
+// The source text a node's own position spans -- what a consumer slicing
+// by start/end_offset actually gets back.
+std::string spanned(const std::string& src, const oscad::ASTNode& n) {
+    const auto& p = n.position();
+    return src.substr(static_cast<size_t>(p.start_offset),
+                       static_cast<size_t>(p.end_offset - p.start_offset));
+}
+} // namespace
+
+// A string is matched by SEVERAL lexer rules (opening quote, content runs,
+// escapes, closing quote), and YY_USER_ACTION resets tokenStart on every
+// one of them -- so building the token's location from currentTokenLoc() at
+// the closing quote described just that one character. Every StringLiteral
+// spanned a bare `"`, and so did anything wrapping it, which silently
+// corrupted a downstream consumer that sliced source by those offsets.
+TEST(SourceSpans, StringLiteralSpansTheWholeLiteral) {
+    struct Case { std::string src; std::string want; };
+    const Case cases[] = {
+        {"a = \"txt\";", "\"txt\""},
+        {"a = \"\";", "\"\""},                                  // empty
+        {"a = \"with \\\"quote\\\" in it\";", "\"with \\\"quote\\\" in it\""},
+        {"a = \"esc \\n seq\";", "\"esc \\n seq\""},
+        {"a = \"comma,inside\";", "\"comma,inside\""},
+    };
+    for (const Case& c : cases) {
+        auto ast = oscad::parseSrc(c.src);
+        ASSERT_EQ(ast.size(), 1u) << c.src;
+        auto* assign = dynamic_cast<oscad::Assignment*>(ast[0].get());
+        ASSERT_NE(assign, nullptr) << c.src;
+        EXPECT_EQ(spanned(c.src, *assign->expr), c.want) << c.src;
+    }
+}
+
+// The enclosing node's span has to be right too -- that is how the bug
+// actually did damage, by dragging an argument's end_offset into the
+// middle of the string.
+TEST(SourceSpans, NodesWrappingAStringSpanCorrectly) {
+    const std::string src = "f(\"x,y\", b);";
+    auto ast = oscad::parseSrc(src);
+    auto* call = dynamic_cast<oscad::ModularCall*>(ast[0].get());
+    ASSERT_NE(call, nullptr);
+    ASSERT_EQ(call->arguments.size(), 2u);
+    EXPECT_EQ(spanned(src, *call->arguments[0]), "\"x,y\"");
+    EXPECT_EQ(spanned(src, *call->arguments[1]), "b");
+}
+
+TEST(SourceSpans, StringsInAVectorSpanCorrectly) {
+    const std::string src = "x = [\"a,b\",\"c\"];";
+    auto ast = oscad::parseSrc(src);
+    auto* assign = dynamic_cast<oscad::Assignment*>(ast[0].get());
+    ASSERT_NE(assign, nullptr);
+    auto* vec = dynamic_cast<oscad::ListComprehension*>(assign->expr.get());
+    ASSERT_NE(vec, nullptr);
+    ASSERT_EQ(vec->elements.size(), 2u);
+    EXPECT_EQ(spanned(src, *vec->elements[0]), "\"a,b\"");
+    EXPECT_EQ(spanned(src, *vec->elements[1]), "\"c\"");
+}
+
+// Multi-line strings must still report the OPENING quote's line/column, not
+// the closing one's.
+TEST(SourceSpans, MultiLineStringReportsItsStartingLine) {
+    const std::string src = "a = 1;\nb = \"one\ntwo\";\n";
+    auto ast = oscad::parseSrc(src);
+    ASSERT_EQ(ast.size(), 2u);
+    auto* assign = dynamic_cast<oscad::Assignment*>(ast[1].get());
+    ASSERT_NE(assign, nullptr);
+    EXPECT_EQ(assign->expr->position().line, 2);
+    EXPECT_EQ(spanned(src, *assign->expr), "\"one\ntwo\"");
+}
