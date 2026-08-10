@@ -436,3 +436,40 @@ TEST(SourceSpans, MultiLineStringReportsItsStartingLine) {
     EXPECT_EQ(assign->expr->position().line, 2);
     EXPECT_EQ(spanned(src, *assign->expr), "\"one\ntwo\"");
 }
+
+// -- Backslash at end of line inside a string ---------------------------
+
+// The lexer had no rule for a backslash followed by a newline: flex's `.`
+// never matches a newline, so `\\.` could not, and the backslash fell
+// through to flex's DEFAULT ECHO rule -- printed straight to stdout, a
+// stray `\` on every parse of such a file. The newline was then swallowed
+// by the content-run rule and became part of the string.
+//
+// The literal keeps both characters. Cooking happens where the literal is
+// evaluated, not here, so a StringLiteral's text still reproduces the
+// source it was parsed from -- which is what pretty-printing relies on.
+TEST(LexicalStrings, BackslashNewlineIsKeptVerbatimInTheLiteral) {
+    struct Case { std::string src; std::string want; const char* what; };
+    const Case cases[] = {
+        {"a = \"x \\\ny\";",   "x \\\ny",   "LF"},
+        {"a = \"x \\\r\ny\";", "x \\\r\ny", "CRLF"},
+    };
+    for (const Case& c : cases) {
+        auto ast = parseSrc(c.src);
+        ASSERT_EQ(ast.size(), 1u) << c.what;
+        auto* assign = dynamic_cast<Assignment*>(ast[0].get());
+        ASSERT_NE(assign, nullptr) << c.what;
+        auto* str = dynamic_cast<StringLiteral*>(assign->expr.get());
+        ASSERT_NE(str, nullptr) << c.what;
+        EXPECT_EQ(str->val, c.want) << c.what;
+    }
+}
+
+// The continued line still counts, or every position after a multi-line
+// string would be reported one line short.
+TEST(LexicalStrings, BackslashNewlineStillAdvancesTheLineNumber) {
+    auto ast = parseSrc("a = \"x \\\ny\";\nb = 2;\n");
+    ASSERT_EQ(ast.size(), 2u);
+    EXPECT_EQ(ast[0]->position().line, 1);
+    EXPECT_EQ(ast[1]->position().line, 3) << "the continuation consumed a line";
+}
