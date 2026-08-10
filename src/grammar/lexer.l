@@ -99,6 +99,15 @@ NUMLIT  0[xX][0-9A-Fa-f]+|[0-9]+([.][0-9]*)?([eE][+-]?[0-9]+)?|[.][0-9]+([eE][+-
     driver.stringStart = driver.tokenStart;
     BEGIN(STR);
 }
+    /* A backslash escaping the end of the line. Flex's `.` never matches a
+       newline, so without this rule the backslash matched nothing, fell to
+       flex's default ECHO and was printed to stdout -- a stray `\` on every
+       parse of such a file -- while the newline was picked up as ordinary
+       content by the run rule below and ended up inside the string.
+       Kept verbatim rather than dropped here: the value is cooked when the
+       literal is evaluated, so the AST keeps text that reproduces the
+       source exactly, which is what the pretty-printer round-trips. */
+<STR>\\\r?\n { driver.stringBuffer.append(yytext, yyleng); }
 <STR>\\. { driver.stringBuffer.append(yytext, yyleng); }
 <STR>[^"\\]+ { driver.stringBuffer.append(yytext, yyleng); }
 <STR>\" {
