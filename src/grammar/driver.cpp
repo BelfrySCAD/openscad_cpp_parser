@@ -153,6 +153,11 @@ NodePtr makeListComprehension(ParserDriver& driver, const OscadLocation& loc, No
     return std::make_unique<ListComprehension>(driver.toPosition(loc), std::move(elements));
 }
 
+NodePtr makeRenderExpression(ParserDriver& driver, const OscadLocation& loc, NodeList arguments, NodeList children) {
+    return std::make_unique<RenderExpression>(driver.toPosition(loc), nodeListCast<Argument>(std::move(arguments)),
+                                              std::move(children));
+}
+
 NodePtr makeModularCall(ParserDriver& driver, const OscadLocation& loc, const OscadLocation& nameLoc, std::string name,
                          NodeList arguments, NodeList children) {
     auto nameNode = makeIdentifier(driver, nameLoc, std::move(name));

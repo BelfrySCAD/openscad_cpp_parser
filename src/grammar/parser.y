@@ -92,6 +92,7 @@
   KW_FOR "for"
   KW_INTERSECTION_FOR "intersection_for"
   KW_EACH "each"
+  KW_RENDER "render"
   KW_UNDEF "undef"
   KW_TRUE "true"
   KW_FALSE "false"
@@ -157,6 +158,7 @@
 %type <NodePtr> modifier_show_only modifier_highlight modifier_background modifier_disable
 %type <NodePtr> if_statement ifelse_statement
 %type <NodePtr> modular_for modular_intersection_for modular_let modular_assert modular_echo modular_call
+%type <NodePtr> render_stmt render_expr
 %type <NodePtr> expr opchain postfix primary
 %type <NodePtr> range_expr vector_expr vector_element
 %type <NodePtr> listcomp_elements listcomp_paren_expr listcomp_let listcomp_each
@@ -305,6 +307,7 @@ single_module_instantiation:
   | modular_assert               { $$ = std::move($1); }
   | modular_echo                  { $$ = std::move($1); }
   | modular_call                   { $$ = std::move($1); }
+  | render_stmt                     { $$ = std::move($1); }
   ;
 
 modular_for:
@@ -340,6 +343,16 @@ modular_echo:
 modular_call:
     NAME "(" arguments ")" child_statement {
       $$ = makeModularCall(driver, @$, @1, std::move($1), std::move($3), std::move($5));
+    }
+  ;
+
+// `render` is a reserved keyword (see lexer.l) purely so the EXPRESSION form
+// below is unambiguous. The STATEMENT form still builds a plain ModularCall
+// named "render", so everything downstream -- builtin dispatch, the argument
+// allowlist, the pretty-printer, json_io -- is unchanged.
+render_stmt:
+    "render" "(" arguments ")" child_statement {
+      $$ = makeModularCall(driver, @$, @1, "render", std::move($3), std::move($5));
     }
   ;
 
@@ -406,6 +419,23 @@ primary:
   | STRING                       { $$ = makeStringLiteral(driver, @$, std::move($1)); }
   | NUMBER                         { $$ = makeNumberLiteral(driver, @$, $1); }
   | NAME                             { $$ = makeIdentifier(driver, @$, std::move($1)); }
+  | render_expr                       { $$ = std::move($1); }
+  ;
+
+// Same RHS as render_stmt, reached only from `primary`. This is NOT a
+// reduce/reduce conflict: LALR merges states only on identical LR(0) cores,
+// and after shifting "render" the statement and expression kernels differ --
+// no single state closes over both (statement-start closes over
+// module_instantiation; every expr-start position closes over no statement
+// nonterminal). Bison verifies this claim at build time via %expect.
+//
+// It lives in `primary` rather than `expr` so `render(){...}.volume` parses
+// through the existing `postfix "." NAME` rule, and so it can appear as an
+// argument, a list element, or an operand.
+render_expr:
+    "render" "(" arguments ")" child_statement {
+      $$ = makeRenderExpression(driver, @$, std::move($3), std::move($5));
+    }
   ;
 
 range_expr:

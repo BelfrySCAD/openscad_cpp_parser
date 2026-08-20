@@ -61,6 +61,10 @@ enum class NodeKind {
     PrimaryCall,
     PrimaryIndex,
     PrimaryMember,
+    // render() in EXPRESSION position -- evaluates its children as geometry
+    // and yields an object() of measurements. The STATEMENT form of render()
+    // is a plain ModularCall named "render"; only this one is new.
+    RenderExpression,
     // List comprehension
     ListCompLet,
     ListCompEach,

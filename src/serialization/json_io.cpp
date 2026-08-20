@@ -267,6 +267,13 @@ json toJsonImpl(const ASTNode& node, bool includePos) {
             j["elements"] = listToJson(static_cast<const ListComprehension&>(node).elements, includePos);
             break;
 
+        case NodeKind::RenderExpression: {
+            auto& n = static_cast<const RenderExpression&>(node);
+            j["arguments"] = listToJson(n.arguments, includePos);
+            j["children"] = listToJson(n.children, includePos);
+            break;
+        }
+
         case NodeKind::ModularCall: {
             auto& n = static_cast<const ModularCall&>(node);
             j["name"] = valueToJson(n.name.get(), includePos);
@@ -543,6 +550,11 @@ const std::unordered_map<std::string, Builder>& registry() {
              return std::make_unique<ListComprehension>(std::move(pos), listFromJson<ASTNode>(j, "elements"));
          }},
 
+        {"RenderExpression",
+         [](const json& j, Position pos) -> std::unique_ptr<ASTNode> {
+             return std::make_unique<RenderExpression>(std::move(pos), listFromJson<Argument>(j, "arguments"),
+                                                        listFromJson<ASTNode>(j, "children"));
+         }},
         {"ModularCall",
          [](const json& j, Position pos) -> std::unique_ptr<ASTNode> {
              return std::make_unique<ModularCall>(std::move(pos), childFromJson<Identifier>(j, "name"),

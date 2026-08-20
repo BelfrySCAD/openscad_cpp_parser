@@ -207,6 +207,7 @@ std::string fmtNode(const ASTNode& node, int indent, int w);
 std::string fmtExpr(const ASTNode& expr, int indent, int w);
 std::string fmtInst(const ASTNode& node, int indent, int w, const std::string& prefix);
 std::string fmtListElem(const ASTNode& elem, int indent, int w);
+std::string fmtBlock(const std::vector<std::unique_ptr<ASTNode>>& nodes, int indent, int w);
 
 std::string fmtAssign(const Assignment& a, int indent, int w) {
     return a.name->name + " = " + fmtExpr(*a.expr, indent, w);
@@ -507,6 +508,16 @@ std::string fmtExpr(const ASTNode& exprNode, int indent, int w) {
     }
     if (auto* lc = dynamic_cast<const ListComprehension*>(&exprNode)) {
         return fmtListComprehension(*lc, indent, w);
+    }
+    if (auto* r = dynamic_cast<const RenderExpression*>(&exprNode)) {
+        // fmtBlock, NOT fmtChild: fmtChild drops the braces for a lone child,
+        // and `x = render() cube(1);` does not parse -- the child_statement
+        // swallows the `;` and leaves the assignment unterminated. fmtBlock
+        // always braces and routes children through fmtNode, which is what
+        // supplies their statement terminators. This arm is why toString()'s
+        // own (reference-matching, terminator-free) child rendering never
+        // reaches emitted source.
+        return "render(" + joinToString(r->arguments, ", ") + ") " + fmtBlock(r->children, indent, w);
     }
     return exprNode.toString();
 }
