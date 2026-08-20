@@ -295,6 +295,12 @@ void classifyNode(ASTNode& node, std::vector<ExprSlot>& exprFields, std::vector<
             addAstNodeList(static_cast<ListComprehension&>(node).elements, exprFields, nonExprChildren);
             break;
 
+        case NodeKind::RenderExpression: {
+            auto& n = static_cast<RenderExpression&>(node);
+            addArgumentExprList(n.arguments, exprFields);
+            addAstNodeList(n.children, exprFields, nonExprChildren);
+            break;
+        }
         case NodeKind::ModularCall: {
             auto& n = static_cast<ModularCall&>(node);
             addArgumentExprList(n.arguments, exprFields);

@@ -25,6 +25,7 @@ add_executable(oscad_tests
   test_scope.cpp
   test_ast_generation.cpp
   test_node_str.cpp
+  test_render_expression.cpp
 )
 target_link_libraries(oscad_tests PRIVATE openscad_cpp_parser GTest::gtest_main)
 

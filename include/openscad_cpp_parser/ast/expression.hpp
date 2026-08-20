@@ -237,6 +237,33 @@ public:
     void buildScope(Scope& parentScope) override;
 };
 
+// `render()` in EXPRESSION position: `obj = render() { cube(10); };`
+//
+// Evaluates its children as geometry, measures the result, and yields an
+// object() -- it draws nothing. The STATEMENT form (`render() cube(1);`)
+// stays a plain ModularCall named "render"; this class exists only because
+// an Expression cannot be a ModuleInstantiation (they are siblings under
+// ASTNode, not parent/child).
+//
+// `arguments` and `children` deliberately mirror ModularCall's field types
+// so the evaluator can hand them straight to resolveCallArgs()/evalChildren()
+// with no adaptation. `children` is ASTNode, not ModuleInstantiation, for
+// the same reason ModularCall's is -- a `{ ... }` block is `statement*` and
+// may hold Assignments, which is why buildScope() below hoists.
+class RenderExpression : public Expression {
+public:
+    RenderExpression(Position position, std::vector<std::unique_ptr<Argument>> arguments,
+                     std::vector<std::unique_ptr<ASTNode>> children)
+        : Expression(NodeKind::RenderExpression, std::move(position)), arguments(std::move(arguments)),
+          children(std::move(children)) {}
+
+    std::vector<std::unique_ptr<Argument>> arguments;
+    std::vector<std::unique_ptr<ASTNode>> children;
+
+    std::string toString() const override;
+    void buildScope(Scope& parentScope) override;
+};
+
 // -- Unary operators --------------------------------------------------
 
 #define OSCAD_UNARY_OP(ClassName)                                                                                    \

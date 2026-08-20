@@ -47,6 +47,7 @@ const char* nodeKindName(NodeKind kind) {
         case NodeKind::PrimaryCall: return "PrimaryCall";
         case NodeKind::PrimaryIndex: return "PrimaryIndex";
         case NodeKind::PrimaryMember: return "PrimaryMember";
+        case NodeKind::RenderExpression: return "RenderExpression";
         case NodeKind::ListCompLet: return "ListCompLet";
         case NodeKind::ListCompEach: return "ListCompEach";
         case NodeKind::ListCompFor: return "ListCompFor";

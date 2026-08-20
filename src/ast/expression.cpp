@@ -1,6 +1,7 @@
 #include "openscad_cpp_parser/ast/expression.hpp"
 
 #include "format_utils.hpp"
+#include "openscad_cpp_parser/ast/scope_builder.hpp"
 #include "openscad_cpp_parser/scope.hpp"
 
 #include <array>
@@ -153,6 +154,47 @@ void FunctionLiteral::buildScope(Scope& parentScope) {
         p->buildScope(funcScope);
     }
     body->buildScope(funcScope);
+}
+
+std::string RenderExpression::toString() const {
+    // Deliberately NOT ModuleInstantiation's formatChildBlock, which omits
+    // both braces (for a lone child) and every statement terminator, because
+    // for a STATEMENT the terminators come from the statement-level printer.
+    // A RenderExpression sits inside an expression, where nothing downstream
+    // adds them -- and `render() cube(1)` unbraced is precisely the form that
+    // does NOT parse (the child_statement swallows the `;`, leaving the
+    // enclosing assignment unterminated). So: always braces, always a `;`
+    // after every child.
+    //
+    // This must stay REPARSEABLE -- pretty_print.cpp's fmtExpr falls through
+    // to toString() for expression kinds it has no case for, so this string
+    // is what a formatter emits. NodeStr.RenderExpressionRoundTrips guards it.
+    //
+    // The unconditional `;` is safe even after a child that already ends in
+    // `}` (a nested block, a module declaration): a bare `;` is itself a legal
+    // statement (parser.y's `statement: ";"`), so a redundant one is a no-op.
+    std::string s = "render(" + joinToString(arguments, ", ") + ") { ";
+    for (const auto& c : children) {
+        s += c->toString() + "; ";
+    }
+    return s + "}";
+}
+
+void RenderExpression::buildScope(Scope& parentScope) {
+    // Same shape as ModularCall::buildScope minus the name lookup (there is
+    // no Identifier -- "render" is a keyword token here). The hoist is
+    // required: `render() { x = 1; cube(x); }` must resolve x.
+    setScope(parentScope);
+    for (auto& a : arguments) {
+        a->buildScope(parentScope);
+    }
+    if (!children.empty()) {
+        Scope& childrenScope = parentScope.childScope();
+        collectHoistedDeclarations(children, childrenScope);
+        for (auto& c : children) {
+            c->buildScope(childrenScope);
+        }
+    }
 }
 
 // -- Operator precedence for minimal-parenthesization toString() ----------

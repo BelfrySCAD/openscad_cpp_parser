@@ -132,6 +132,8 @@ NodePtr makeListCompIfElse(ParserDriver& driver, const OscadLocation& loc, NodeP
                             NodePtr falseExpr);
 NodePtr makeListComprehension(ParserDriver& driver, const OscadLocation& loc, NodeList elements);
 
+NodePtr makeRenderExpression(ParserDriver& driver, const OscadLocation& loc, NodeList arguments, NodeList children);
+
 NodePtr makeModularCall(ParserDriver& driver, const OscadLocation& loc, const OscadLocation& nameLoc, std::string name,
                          NodeList arguments, NodeList children);
 NodePtr makeModularFor(ParserDriver& driver, const OscadLocation& loc, NodeList assignments, NodeList body);

@@ -47,6 +47,11 @@ const std::unordered_map<std::string, KeywordFactory>& keywordTable() {
         {"for", [](const OscadLocation& l) { return yy::parser::make_KW_FOR(l); }},
         {"intersection_for", [](const OscadLocation& l) { return yy::parser::make_KW_INTERSECTION_FOR(l); }},
         {"each", [](const OscadLocation& l) { return yy::parser::make_KW_EACH(l); }},
+        // Reserved so `render` can lead an EXPRESSION-position geometry block
+        // (`obj = render() { cube(1); };`). LALR(1) cannot otherwise tell that
+        // apart from a function call. Note `$render` still lexes as NAME --
+        // this table is keyed on the full IDENT text, including the `$`.
+        {"render", [](const OscadLocation& l) { return yy::parser::make_KW_RENDER(l); }},
         {"undef", [](const OscadLocation& l) { return yy::parser::make_KW_UNDEF(l); }},
         {"true", [](const OscadLocation& l) { return yy::parser::make_KW_TRUE(l); }},
         {"false", [](const OscadLocation& l) { return yy::parser::make_KW_FALSE(l); }},
