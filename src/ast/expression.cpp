@@ -22,6 +22,10 @@ std::string NumberLiteral::toString() const {
 }
 
 std::string RangeLiteral::toString() const {
+    // Print back the form that was written. Emitting the synthesized step for
+    // a two-argument range would round-trip `[5:0]` into `[5 : 1 : 0]`, which
+    // reads identically but suppresses the evaluator's backwards-range warning.
+    if (implicitStep) return "[" + start->toString() + " : " + end->toString() + "]";
     return "[" + start->toString() + " : " + step->toString() + " : " + end->toString() + "]";
 }
 
