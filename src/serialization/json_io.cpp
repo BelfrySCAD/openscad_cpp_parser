@@ -112,6 +112,7 @@ json toJsonImpl(const ASTNode& node, bool includePos) {
             j["start"] = valueToJson(n.start.get(), includePos);
             j["end"] = valueToJson(n.end.get(), includePos);
             j["step"] = valueToJson(n.step.get(), includePos);
+            if (n.implicitStep) j["implicitStep"] = true;
             break;
         }
         case NodeKind::ParameterDeclaration: {
@@ -410,7 +411,8 @@ const std::unordered_map<std::string, Builder>& registry() {
         {"RangeLiteral",
          [](const json& j, Position pos) -> std::unique_ptr<ASTNode> {
              return std::make_unique<RangeLiteral>(std::move(pos), childFromJson<Expression>(j, "start"),
-                                                    childFromJson<Expression>(j, "end"), childFromJson<Expression>(j, "step"));
+                                                    childFromJson<Expression>(j, "end"), childFromJson<Expression>(j, "step"),
+                                                    j.value("implicitStep", false));
          }},
         {"ParameterDeclaration",
          [](const json& j, Position pos) -> std::unique_ptr<ASTNode> {

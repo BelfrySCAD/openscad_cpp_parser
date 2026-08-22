@@ -46,11 +46,13 @@ NodePtr makeUndefinedLiteral(ParserDriver& driver, const OscadLocation& loc) {
 }
 
 NodePtr makeRangeLiteral(ParserDriver& driver, const OscadLocation& loc, NodePtr start, NodePtr end, NodePtr step) {
-    if (!step) {
+    const bool implicitStep = !step;
+    if (implicitStep) {
         step = std::make_unique<NumberLiteral>(driver.toPosition(loc), 1.0);
     }
     return std::make_unique<RangeLiteral>(driver.toPosition(loc), nodeCast<Expression>(std::move(start)),
-                                           nodeCast<Expression>(std::move(end)), nodeCast<Expression>(std::move(step)));
+                                           nodeCast<Expression>(std::move(end)), nodeCast<Expression>(std::move(step)),
+                                           implicitStep);
 }
 
 NodePtr makePositionalArgument(ParserDriver& driver, const OscadLocation& loc, NodePtr expr) {

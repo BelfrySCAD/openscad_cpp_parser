@@ -80,13 +80,21 @@ public:
 class RangeLiteral : public Primary {
 public:
     RangeLiteral(Position position, std::unique_ptr<Expression> start, std::unique_ptr<Expression> end,
-                 std::unique_ptr<Expression> step)
+                 std::unique_ptr<Expression> step, bool implicitStep = false)
         : Primary(NodeKind::RangeLiteral, std::move(position)), start(std::move(start)), end(std::move(end)),
-          step(std::move(step)) {}
+          step(std::move(step)), implicitStep(implicitStep) {}
 
     std::unique_ptr<Expression> start;
     std::unique_ptr<Expression> end;
     std::unique_ptr<Expression> step;
+
+    // True when the source wrote the two-argument form `[a:b]` and the step
+    // node below is the literal 1.0 this parser synthesized for it. Consumers
+    // that only need the value can ignore this and read `step` as always
+    // present; it exists because "the author did not choose a step" is not
+    // recoverable from the synthesized node, and the evaluator's backwards-range
+    // warning fires only for that case (an explicit step is taken as deliberate).
+    bool implicitStep = false;
 
     std::string toString() const override;
     void buildScope(Scope& parentScope) override;

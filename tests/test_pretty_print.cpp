@@ -515,3 +515,16 @@ TEST(PrettyPrint, AssignmentRhsWithLeadingCommentAndTrailingLineComment) {
 // no other translation unit -- including this test file -- can name them.
 // Left as a known, permanent coverage ceiling rather than weakening the
 // encapsulation just to reach 100%.
+
+// The two-argument range keeps its shape through a print/reparse cycle.
+// It would be easy to always print the synthesized step, and the result
+// would still be a correct program -- but `[5:0]` and `[5:1:0]` mean
+// different things to the evaluator's backwards-range warning, so
+// reformatting a file must not quietly convert one into the other.
+TEST(PrettyPrint, ImplicitRangeStepSurvivesRoundTrip) {
+    auto ast = parseAst("a = [5:0];\nb = [5:1:0];\n");
+    const std::string printed = toOpenscad(ast);
+    EXPECT_NE(printed.find("[5 : 0]"), std::string::npos) << printed;
+    EXPECT_NE(printed.find("[5 : 1 : 0]"), std::string::npos) << printed;
+    expectStablePrint("a = [5:0];\nb = [5:1:0];\n");
+}
