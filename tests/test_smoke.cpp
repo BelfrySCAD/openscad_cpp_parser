@@ -69,8 +69,8 @@ TEST(Smoke, ParameterDefaultResolvesInCallerScope) {
     ASSERT_EQ(func->parameters.size(), 1u);
     auto* defaultExpr = func->parameters[0]->defaultValue.get();
     ASSERT_NE(defaultExpr, nullptr);
-    ASSERT_NE(defaultExpr->scope(), nullptr);
-    EXPECT_NE(defaultExpr->scope()->lookupVariable("y"), nullptr);
+    ASSERT_NE(scopeOf(*root, *defaultExpr), nullptr);
+    EXPECT_NE(scopeOf(*root, *defaultExpr)->lookupVariable("y"), nullptr);
 }
 
 TEST(Smoke, LetOpSequentialSelfReferentialBinding) {
@@ -84,8 +84,8 @@ TEST(Smoke, LetOpSequentialSelfReferentialBinding) {
     // y's RHS (x + 1) should resolve `x` to the first let-assignment.
     auto* yRhs = dynamic_cast<AdditionOp*>(let->assignments[1]->expr.get());
     ASSERT_NE(yRhs, nullptr);
-    ASSERT_NE(yRhs->scope(), nullptr);
-    EXPECT_EQ(yRhs->scope()->lookupVariable("x"), let->assignments[0].get());
+    ASSERT_NE(scopeOf(*root, *yRhs), nullptr);
+    EXPECT_EQ(scopeOf(*root, *yRhs)->lookupVariable("x"), let->assignments[0].get());
 }
 
 TEST(Smoke, ModularIfElseBranchesAreIndependentScopes) {
@@ -93,8 +93,8 @@ TEST(Smoke, ModularIfElseBranchesAreIndependentScopes) {
     auto root = buildScopes(ast);
     auto* ifElse = dynamic_cast<ModularIfElse*>(ast[0].get());
     ASSERT_NE(ifElse, nullptr);
-    Scope* trueScope = ifElse->trueBranch[0]->scope();
-    Scope* falseScope = ifElse->falseBranch[0]->scope();
+    const Scope* trueScope = scopeOf(*root, *ifElse->trueBranch[0]);
+    const Scope* falseScope = scopeOf(*root, *ifElse->falseBranch[0]);
     ASSERT_NE(trueScope, nullptr);
     ASSERT_NE(falseScope, nullptr);
     EXPECT_NE(trueScope, falseScope);

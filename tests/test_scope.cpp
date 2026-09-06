@@ -100,7 +100,7 @@ TEST(ScopeBuilderBasics, SimpleAssignment) {
 TEST(ScopeBuilderBasics, AssignmentScopeAttached) {
     auto ast = parseSrc("x = 42;");
     auto scope = buildScopes(ast);
-    EXPECT_EQ(ast[0]->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *ast[0]), scope.get());
 }
 
 TEST(ScopeBuilderBasics, MultipleAssignments) {
@@ -121,8 +121,8 @@ TEST(ScopeBuilderBasics, RawPointerOverloadCombinesTwoOwningVectors) {
     auto scope = buildScopes(combined);
     EXPECT_EQ(scope->lookupVariable("x"), astA[0].get());
     EXPECT_EQ(scope->lookupVariable("y"), astB[0].get());
-    EXPECT_EQ(astA[0]->scope(), scope.get());
-    EXPECT_EQ(astB[0]->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *astA[0]), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *astB[0]), scope.get());
 }
 
 // -- Function scope -----------------------------------------------------
@@ -138,7 +138,7 @@ TEST(FunctionScopeTest, ParametersInFunctionScope) {
     auto scope = buildScopes(ast);
     auto* func = dynamic_cast<FunctionDeclaration*>(ast[0].get());
     ASSERT_NE(func, nullptr);
-    Scope* bodyScope = func->expr->scope();
+    const Scope* bodyScope = scopeOf(*scope, *func->expr);
     ASSERT_NE(bodyScope, nullptr);
     EXPECT_NE(bodyScope->parent(), nullptr);
     EXPECT_NE(bodyScope->lookupVariable("a"), nullptr);
@@ -150,7 +150,7 @@ TEST(FunctionScopeTest, SeesOuterVars) {
     auto scope = buildScopes(ast);
     auto* func = dynamic_cast<FunctionDeclaration*>(ast[1].get());
     ASSERT_NE(func, nullptr);
-    EXPECT_NE(func->expr->scope()->lookupVariable("x"), nullptr);
+    EXPECT_NE(scopeOf(*scope, *func->expr)->lookupVariable("x"), nullptr);
 }
 
 TEST(FunctionScopeTest, ParameterWithDefault) {
@@ -168,13 +168,13 @@ TEST(FunctionScopeTest, ParameterDefaultVisitedInCallerScope) {
     auto* func = dynamic_cast<FunctionDeclaration*>(ast[1].get());
     ASSERT_NE(func, nullptr);
     auto& param = func->parameters[0];
-    Scope* defaultScope = param->defaultValue->scope();
+    const Scope* defaultScope = scopeOf(*scope, *param->defaultValue);
     ASSERT_NE(defaultScope, nullptr);
     EXPECT_NE(defaultScope->lookupVariable("x"), nullptr);
     // Strengthened beyond the Python original: confirm the default's scope
     // really is the caller scope, not the function's own body scope (which
     // would additionally see `a`).
-    EXPECT_NE(defaultScope, func->expr->scope());
+    EXPECT_NE(defaultScope, scopeOf(*scope, *func->expr));
     EXPECT_EQ(defaultScope->lookupVariable("a"), nullptr);
 }
 
@@ -191,7 +191,7 @@ TEST(ModuleScopeTest, ParametersInModuleScope) {
     auto scope = buildScopes(ast);
     auto* mod = dynamic_cast<ModuleDeclaration*>(ast[0].get());
     ASSERT_NE(mod, nullptr);
-    Scope* childScope = mod->children[0]->scope();
+    const Scope* childScope = scopeOf(*scope, *mod->children[0]);
     ASSERT_NE(childScope, nullptr);
     EXPECT_NE(childScope->lookupVariable("size"), nullptr);
 }
@@ -208,7 +208,7 @@ TEST(ModuleScopeTest, NestedFunctionInModule) {
     auto scope = buildScopes(ast);
     auto* mod = dynamic_cast<ModuleDeclaration*>(ast[0].get());
     ASSERT_NE(mod, nullptr);
-    Scope* bodyScope = mod->children[0]->scope();
+    const Scope* bodyScope = scopeOf(*scope, *mod->children[0]);
     ASSERT_NE(bodyScope, nullptr);
     EXPECT_NE(bodyScope->lookupFunction("helper"), nullptr);
 }
@@ -221,7 +221,7 @@ TEST(HoistingTest, AssignmentHoistedInModule) {
     auto* mod = dynamic_cast<ModuleDeclaration*>(ast[0].get());
     ASSERT_NE(mod, nullptr);
     ASTNode* callNode = mod->children[0].get();
-    EXPECT_NE(callNode->scope()->lookupVariable("val"), nullptr);
+    EXPECT_NE(scopeOf(*scope, *callNode)->lookupVariable("val"), nullptr);
 }
 
 // -- Let expressions ------------------------------------------------
@@ -231,7 +231,7 @@ TEST(LetExpressionsTest, LetOpCreatesScope) {
     auto scope = buildScopes(ast);
     auto* letNode = dynamic_cast<LetOp*>(dynamic_cast<Assignment*>(ast[0].get())->expr.get());
     ASSERT_NE(letNode, nullptr);
-    Scope* bodyScope = letNode->body->scope();
+    const Scope* bodyScope = scopeOf(*scope, *letNode->body);
     ASSERT_NE(bodyScope, nullptr);
     EXPECT_NE(bodyScope->lookupVariable("a"), nullptr);
     EXPECT_NE(bodyScope->lookupVariable("b"), nullptr);
@@ -252,7 +252,7 @@ TEST(ModularConstructsTest, ForCreatesScope) {
     auto* forNode = dynamic_cast<ModularFor*>(ast[0].get());
     ASSERT_NE(forNode, nullptr);
     ASSERT_FALSE(forNode->body.empty());
-    EXPECT_NE(forNode->body[0]->scope()->lookupVariable("i"), nullptr);
+    EXPECT_NE(scopeOf(*scope, *forNode->body[0])->lookupVariable("i"), nullptr);
     EXPECT_EQ(scope->lookupVariable("i"), nullptr);
 }
 
@@ -262,7 +262,7 @@ TEST(ModularConstructsTest, IfCreatesScope) {
     auto* ifNode = dynamic_cast<ModularIf*>(ast[0].get());
     ASSERT_NE(ifNode, nullptr);
     ASSERT_FALSE(ifNode->trueBranch.empty());
-    EXPECT_EQ(ifNode->trueBranch[0]->scope()->parent(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *ifNode->trueBranch[0])->parent(), scope.get());
 }
 
 TEST(ModularConstructsTest, LetCreatesScope) {
@@ -271,7 +271,7 @@ TEST(ModularConstructsTest, LetCreatesScope) {
     auto* letNode = dynamic_cast<ModularLet*>(ast[0].get());
     ASSERT_NE(letNode, nullptr);
     ASSERT_FALSE(letNode->children.empty());
-    EXPECT_NE(letNode->children[0]->scope()->lookupVariable("x"), nullptr);
+    EXPECT_NE(scopeOf(*scope, *letNode->children[0])->lookupVariable("x"), nullptr);
 }
 
 TEST(ModularConstructsTest, IfSingleBranch) {
@@ -279,7 +279,7 @@ TEST(ModularConstructsTest, IfSingleBranch) {
     auto scope = buildScopes(ast);
     auto* ifNode = dynamic_cast<ModularIf*>(ast[0].get());
     ASSERT_NE(ifNode, nullptr);
-    EXPECT_NE(ifNode->trueBranch[0]->scope(), nullptr);
+    EXPECT_NE(scopeOf(*scope, *ifNode->trueBranch[0]), nullptr);
 }
 
 TEST(ModularConstructsTest, IfElseSingleBranches) {
@@ -287,8 +287,8 @@ TEST(ModularConstructsTest, IfElseSingleBranches) {
     auto scope = buildScopes(ast);
     auto* ieNode = dynamic_cast<ModularIfElse*>(ast[0].get());
     ASSERT_NE(ieNode, nullptr);
-    Scope* trueScope = ieNode->trueBranch[0]->scope();
-    Scope* falseScope = ieNode->falseBranch[0]->scope();
+    const Scope* trueScope = scopeOf(*scope, *ieNode->trueBranch[0]);
+    const Scope* falseScope = scopeOf(*scope, *ieNode->falseBranch[0]);
     EXPECT_NE(trueScope, nullptr);
     EXPECT_NE(falseScope, nullptr);
     EXPECT_NE(trueScope, falseScope);
@@ -300,7 +300,7 @@ TEST(ModularConstructsTest, ForListBody) {
     auto* forNode = dynamic_cast<ModularFor*>(ast[0].get());
     ASSERT_NE(forNode, nullptr);
     for (auto& child : forNode->body) {
-        EXPECT_NE(child->scope()->lookupVariable("i"), nullptr);
+        EXPECT_NE(scopeOf(*scope, *child)->lookupVariable("i"), nullptr);
     }
 }
 
@@ -309,9 +309,9 @@ TEST(ModularConstructsTest, EchoWithChildren) {
     auto scope = buildScopes(ast);
     auto* echoNode = dynamic_cast<ModularEcho*>(ast[0].get());
     ASSERT_NE(echoNode, nullptr);
-    EXPECT_EQ(echoNode->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *echoNode), scope.get());
     for (auto& child : echoNode->children) {
-        EXPECT_NE(child->scope(), nullptr);
+        EXPECT_NE(scopeOf(*scope, *child), nullptr);
     }
 }
 
@@ -320,13 +320,13 @@ TEST(ModularConstructsTest, AssertWithChildren) {
     auto scope = buildScopes(ast);
     auto* assertNode = dynamic_cast<ModularAssert*>(ast[0].get());
     ASSERT_NE(assertNode, nullptr);
-    EXPECT_EQ(assertNode->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *assertNode), scope.get());
 }
 
 TEST(ModularConstructsTest, CallEmptyChildren) {
     auto ast = parseSrc("cube(1);");
     auto scope = buildScopes(ast);
-    EXPECT_EQ(ast[0]->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *ast[0]), scope.get());
 }
 
 TEST(ModularConstructsTest, ModifierShowOnly) {
@@ -334,29 +334,29 @@ TEST(ModularConstructsTest, ModifierShowOnly) {
     auto scope = buildScopes(ast);
     auto* mod = dynamic_cast<ModularModifierShowOnly*>(ast[0].get());
     ASSERT_NE(mod, nullptr);
-    EXPECT_EQ(mod->scope(), scope.get());
-    EXPECT_NE(mod->child->scope(), nullptr);
+    EXPECT_EQ(scopeOf(*scope, *mod), scope.get());
+    EXPECT_NE(scopeOf(*scope, *mod->child), nullptr);
 }
 TEST(ModularConstructsTest, ModifierHighlight) {
     auto ast = parseSrc("# cube(1);");
     auto scope = buildScopes(ast);
     auto* mod = dynamic_cast<ModularModifierHighlight*>(ast[0].get());
     ASSERT_NE(mod, nullptr);
-    EXPECT_EQ(mod->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *mod), scope.get());
 }
 TEST(ModularConstructsTest, ModifierBackground) {
     auto ast = parseSrc("% cube(1);");
     auto scope = buildScopes(ast);
     auto* mod = dynamic_cast<ModularModifierBackground*>(ast[0].get());
     ASSERT_NE(mod, nullptr);
-    EXPECT_EQ(mod->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *mod), scope.get());
 }
 TEST(ModularConstructsTest, ModifierDisable) {
     auto ast = parseSrc("* cube(1);");
     auto scope = buildScopes(ast);
     auto* mod = dynamic_cast<ModularModifierDisable*>(ast[0].get());
     ASSERT_NE(mod, nullptr);
-    EXPECT_EQ(mod->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *mod), scope.get());
 }
 
 // -- FunctionLiteral recursion --------------------------------------
@@ -366,7 +366,7 @@ TEST(FunctionLiteralRecursionTest, SeesAssignedVariable) {
     auto scope = buildScopes(ast);
     auto* funcLit = dynamic_cast<FunctionLiteral*>(dynamic_cast<Assignment*>(ast[0].get())->expr.get());
     ASSERT_NE(funcLit, nullptr);
-    EXPECT_NE(funcLit->body->scope()->lookupVariable("x"), nullptr);
+    EXPECT_NE(scopeOf(*scope, *funcLit->body)->lookupVariable("x"), nullptr);
 }
 
 TEST(FunctionLiteralRecursionTest, WithDefaultParameter) {
@@ -375,7 +375,7 @@ TEST(FunctionLiteralRecursionTest, WithDefaultParameter) {
     auto* funcLit = dynamic_cast<FunctionLiteral*>(dynamic_cast<Assignment*>(ast[0].get())->expr.get());
     ASSERT_NE(funcLit, nullptr);
     EXPECT_NE(funcLit->parameters[0]->defaultValue, nullptr);
-    EXPECT_NE(funcLit->body->scope()->lookupVariable("x"), nullptr);
+    EXPECT_NE(scopeOf(*scope, *funcLit->body)->lookupVariable("x"), nullptr);
 }
 
 TEST(FunctionLiteralRecursionTest, InExpression) {
@@ -385,7 +385,7 @@ TEST(FunctionLiteralRecursionTest, InExpression) {
     ASSERT_NE(lc, nullptr);
     auto* funcLit = dynamic_cast<FunctionLiteral*>(lc->elements[1].get());
     ASSERT_NE(funcLit, nullptr);
-    EXPECT_NE(funcLit->body->scope()->lookupVariable("a"), nullptr);
+    EXPECT_NE(scopeOf(*scope, *funcLit->body)->lookupVariable("a"), nullptr);
 }
 
 TEST(FunctionLiteralRecursionTest, InTernaryRhs) {
@@ -395,7 +395,7 @@ TEST(FunctionLiteralRecursionTest, InTernaryRhs) {
     ASSERT_NE(ternary, nullptr);
     auto* funcLit = dynamic_cast<FunctionLiteral*>(ternary->falseExpr.get());
     ASSERT_NE(funcLit, nullptr);
-    EXPECT_NE(funcLit->body->scope()->lookupVariable("a"), nullptr);
+    EXPECT_NE(scopeOf(*scope, *funcLit->body)->lookupVariable("a"), nullptr);
 }
 
 // -- ModularCall children -------------------------------------------
@@ -407,9 +407,9 @@ TEST(ModularCallChildrenTest, WithNamedArgument) {
     ASSERT_NE(call, nullptr);
     auto* named = dynamic_cast<NamedArgument*>(call->arguments[0].get());
     ASSERT_NE(named, nullptr);
-    EXPECT_EQ(named->scope(), scope.get());
-    EXPECT_EQ(named->name->scope(), scope.get());
-    EXPECT_EQ(named->expr->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *named), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *named->name), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *named->expr), scope.get());
 }
 
 TEST(ModularCallChildrenTest, PrimaryCallNamedArgumentVisitsName) {
@@ -419,7 +419,7 @@ TEST(ModularCallChildrenTest, PrimaryCallNamedArgumentVisitsName) {
     ASSERT_NE(pcall, nullptr);
     auto* named = dynamic_cast<NamedArgument*>(pcall->arguments[0].get());
     ASSERT_NE(named, nullptr);
-    EXPECT_EQ(named->name->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *named->name), scope.get());
 }
 
 TEST(ModularCallChildrenTest, CallChildrenScope) {
@@ -428,8 +428,8 @@ TEST(ModularCallChildrenTest, CallChildrenScope) {
     auto* call = dynamic_cast<ModularCall*>(ast[0].get());
     ASSERT_NE(call, nullptr);
     for (auto& child : call->children) {
-        ASSERT_NE(child->scope(), nullptr);
-        EXPECT_EQ(child->scope()->parent(), scope.get());
+        ASSERT_NE(scopeOf(*scope, *child), nullptr);
+        EXPECT_EQ(scopeOf(*scope, *child)->parent(), scope.get());
     }
 }
 
@@ -440,10 +440,10 @@ TEST(ScopeLookupTest, AncestorScopeFunctionAndModule) {
     auto scope = buildScopes(ast);
     auto* func = dynamic_cast<FunctionDeclaration*>(ast[1].get());
     ASSERT_NE(func, nullptr);
-    EXPECT_NE(func->expr->scope()->lookupVariable("x"), nullptr);
+    EXPECT_NE(scopeOf(*scope, *func->expr)->lookupVariable("x"), nullptr);
     auto* mod = dynamic_cast<ModuleDeclaration*>(ast[2].get());
     ASSERT_NE(mod, nullptr);
-    EXPECT_NE(mod->children[0]->scope()->lookupVariable("x"), nullptr);
+    EXPECT_NE(scopeOf(*scope, *mod->children[0])->lookupVariable("x"), nullptr);
 }
 
 TEST(ScopeLookupTest, LookupInParent) {
@@ -459,10 +459,10 @@ TEST(ScopeLookupTest, Shadowing) {
     auto scope = buildScopes(ast);
     auto* func = dynamic_cast<FunctionDeclaration*>(ast[1].get());
     ASSERT_NE(func, nullptr);
-    Scope* bodyScope = func->expr->scope();
-    ASTNode* found = bodyScope->lookupVariable("x");
+    const Scope* bodyScope = scopeOf(*scope, *func->expr);
+    const ASTNode* found = bodyScope->lookupVariable("x");
     ASSERT_NE(found, nullptr);
-    EXPECT_NE(dynamic_cast<ParameterDeclaration*>(found), nullptr);
+    EXPECT_NE(dynamic_cast<const ParameterDeclaration*>(found), nullptr);
     EXPECT_NE(found, ast[0].get());
 }
 
@@ -494,7 +494,7 @@ TEST(ListComprehensionScopeTest, ForScope) {
     ASSERT_NE(lc, nullptr);
     auto* forElem = dynamic_cast<ListCompFor*>(lc->elements[0].get());
     ASSERT_NE(forElem, nullptr);
-    EXPECT_NE(forElem->body->scope()->lookupVariable("i"), nullptr);
+    EXPECT_NE(scopeOf(*scope, *forElem->body)->lookupVariable("i"), nullptr);
     EXPECT_EQ(scope->lookupVariable("i"), nullptr);
 }
 
@@ -505,7 +505,7 @@ TEST(ListComprehensionScopeTest, CForScope) {
     ASSERT_NE(lc, nullptr);
     auto* cforElem = dynamic_cast<ListCompCFor*>(lc->elements[0].get());
     ASSERT_NE(cforElem, nullptr);
-    EXPECT_NE(cforElem->body->scope()->lookupVariable("i"), nullptr);
+    EXPECT_NE(scopeOf(*scope, *cforElem->body)->lookupVariable("i"), nullptr);
     // Not checked by the Python original, but symmetric with the plain-for
     // case and worth locking down: c-style-for's loop var must not leak.
     EXPECT_EQ(scope->lookupVariable("i"), nullptr);
@@ -518,7 +518,7 @@ TEST(ListComprehensionScopeTest, LetScope) {
     ASSERT_NE(lc, nullptr);
     auto* letElem = dynamic_cast<ListCompLet*>(lc->elements[0].get());
     ASSERT_NE(letElem, nullptr);
-    EXPECT_NE(letElem->body->scope()->lookupVariable("a"), nullptr);
+    EXPECT_NE(scopeOf(*scope, *letElem->body)->lookupVariable("a"), nullptr);
 }
 
 TEST(ListComprehensionScopeTest, IfScope) {
@@ -530,8 +530,8 @@ TEST(ListComprehensionScopeTest, IfScope) {
     ASSERT_NE(forElem, nullptr);
     auto* ifElem = dynamic_cast<ListCompIf*>(forElem->body.get());
     ASSERT_NE(ifElem, nullptr);
-    EXPECT_NE(ifElem->scope(), nullptr);
-    EXPECT_NE(ifElem->trueExpr->scope(), nullptr);
+    EXPECT_NE(scopeOf(*scope, *ifElem), nullptr);
+    EXPECT_NE(scopeOf(*scope, *ifElem->trueExpr), nullptr);
 }
 
 TEST(ListComprehensionScopeTest, IfElseScope) {
@@ -543,15 +543,15 @@ TEST(ListComprehensionScopeTest, IfElseScope) {
     ASSERT_NE(forElem, nullptr);
     auto* ifElseElem = dynamic_cast<ListCompIfElse*>(forElem->body.get());
     ASSERT_NE(ifElseElem, nullptr);
-    EXPECT_NE(ifElseElem->trueExpr->scope(), nullptr);
-    EXPECT_NE(ifElseElem->falseExpr->scope(), nullptr);
+    EXPECT_NE(scopeOf(*scope, *ifElseElem->trueExpr), nullptr);
+    EXPECT_NE(scopeOf(*scope, *ifElseElem->falseExpr), nullptr);
     // Unlike ModularIfElse, ListCompIfElse's branches are plain
     // expressions (not statement blocks that could contain hoistable
     // declarations), so build_scope legitimately does NOT create a new
     // scope per branch here -- both share parent_scope directly. Matches
     // the reference exactly; do not "strengthen" this into a distinctness
     // check (an earlier version of this test incorrectly did).
-    EXPECT_EQ(ifElseElem->trueExpr->scope(), ifElseElem->falseExpr->scope());
+    EXPECT_EQ(scopeOf(*scope, *ifElseElem->trueExpr), scopeOf(*scope, *ifElseElem->falseExpr));
 }
 
 TEST(ListComprehensionScopeTest, EachScope) {
@@ -561,7 +561,7 @@ TEST(ListComprehensionScopeTest, EachScope) {
     ASSERT_NE(lc, nullptr);
     auto* eachElem = dynamic_cast<ListCompEach*>(lc->elements[0].get());
     ASSERT_NE(eachElem, nullptr);
-    EXPECT_NE(eachElem->scope(), nullptr);
+    EXPECT_NE(scopeOf(*scope, *eachElem), nullptr);
 }
 
 // -- Expression-operator build_scope sweep -------------------------------
@@ -574,145 +574,145 @@ TEST(ExpressionOpBuildScope, EchoOp) {
     auto scope = buildScopes(ast);
     auto* echo = dynamic_cast<EchoOp*>(dynamic_cast<Assignment*>(ast[0].get())->expr.get());
     ASSERT_NE(echo, nullptr);
-    EXPECT_EQ(echo->scope(), scope.get());
-    EXPECT_EQ(echo->body->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *echo), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *echo->body), scope.get());
 }
 TEST(ExpressionOpBuildScope, AssertOp) {
     auto ast = parseSrc("x = assert(true) 1;");
     auto scope = buildScopes(ast);
     auto* a = dynamic_cast<AssertOp*>(dynamic_cast<Assignment*>(ast[0].get())->expr.get());
     ASSERT_NE(a, nullptr);
-    EXPECT_EQ(a->scope(), scope.get());
-    EXPECT_EQ(a->body->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *a), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *a->body), scope.get());
 }
 TEST(ExpressionOpBuildScope, DivisionOp) {
     auto ast = parseSrc("x = 10 / 2;");
     auto scope = buildScopes(ast);
     auto* d = dynamic_cast<DivisionOp*>(dynamic_cast<Assignment*>(ast[0].get())->expr.get());
     ASSERT_NE(d, nullptr);
-    EXPECT_EQ(d->scope(), scope.get());
-    EXPECT_EQ(d->left->scope(), scope.get());
-    EXPECT_EQ(d->right->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *d), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *d->left), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *d->right), scope.get());
 }
 TEST(ExpressionOpBuildScope, ModuloOp) {
     auto ast = parseSrc("x = 10 % 3;");
     auto scope = buildScopes(ast);
     auto* m = dynamic_cast<ModuloOp*>(dynamic_cast<Assignment*>(ast[0].get())->expr.get());
     ASSERT_NE(m, nullptr);
-    EXPECT_EQ(m->left->scope(), scope.get());
-    EXPECT_EQ(m->right->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *m->left), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *m->right), scope.get());
 }
 TEST(ExpressionOpBuildScope, ExponentOp) {
     auto ast = parseSrc("x = 2 ^ 3;");
     auto scope = buildScopes(ast);
     auto* e = dynamic_cast<ExponentOp*>(dynamic_cast<Assignment*>(ast[0].get())->expr.get());
     ASSERT_NE(e, nullptr);
-    EXPECT_EQ(e->left->scope(), scope.get());
-    EXPECT_EQ(e->right->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *e->left), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *e->right), scope.get());
 }
 TEST(ExpressionOpBuildScope, BitwiseAndOp) {
     auto ast = parseSrc("x = 5 & 3;");
     auto scope = buildScopes(ast);
     auto* op = dynamic_cast<BitwiseAndOp*>(dynamic_cast<Assignment*>(ast[0].get())->expr.get());
     ASSERT_NE(op, nullptr);
-    EXPECT_EQ(op->left->scope(), scope.get());
-    EXPECT_EQ(op->right->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *op->left), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *op->right), scope.get());
 }
 TEST(ExpressionOpBuildScope, BitwiseOrOp) {
     auto ast = parseSrc("x = 5 | 3;");
     auto scope = buildScopes(ast);
     auto* op = dynamic_cast<BitwiseOrOp*>(dynamic_cast<Assignment*>(ast[0].get())->expr.get());
     ASSERT_NE(op, nullptr);
-    EXPECT_EQ(op->left->scope(), scope.get());
-    EXPECT_EQ(op->right->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *op->left), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *op->right), scope.get());
 }
 TEST(ExpressionOpBuildScope, BitwiseNotOp) {
     auto ast = parseSrc("x = ~5;");
     auto scope = buildScopes(ast);
     auto* op = dynamic_cast<BitwiseNotOp*>(dynamic_cast<Assignment*>(ast[0].get())->expr.get());
     ASSERT_NE(op, nullptr);
-    EXPECT_EQ(op->expr->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *op->expr), scope.get());
 }
 TEST(ExpressionOpBuildScope, BitwiseShiftLeftOp) {
     auto ast = parseSrc("x = 1 << 4;");
     auto scope = buildScopes(ast);
     auto* op = dynamic_cast<BitwiseShiftLeftOp*>(dynamic_cast<Assignment*>(ast[0].get())->expr.get());
     ASSERT_NE(op, nullptr);
-    EXPECT_EQ(op->left->scope(), scope.get());
-    EXPECT_EQ(op->right->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *op->left), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *op->right), scope.get());
 }
 TEST(ExpressionOpBuildScope, BitwiseShiftRightOp) {
     auto ast = parseSrc("x = 16 >> 2;");
     auto scope = buildScopes(ast);
     auto* op = dynamic_cast<BitwiseShiftRightOp*>(dynamic_cast<Assignment*>(ast[0].get())->expr.get());
     ASSERT_NE(op, nullptr);
-    EXPECT_EQ(op->left->scope(), scope.get());
-    EXPECT_EQ(op->right->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *op->left), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *op->right), scope.get());
 }
 TEST(ExpressionOpBuildScope, LogicalAndOp) {
     auto ast = parseSrc("x = true && false;");
     auto scope = buildScopes(ast);
     auto* op = dynamic_cast<LogicalAndOp*>(dynamic_cast<Assignment*>(ast[0].get())->expr.get());
     ASSERT_NE(op, nullptr);
-    EXPECT_EQ(op->left->scope(), scope.get());
-    EXPECT_EQ(op->right->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *op->left), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *op->right), scope.get());
 }
 TEST(ExpressionOpBuildScope, LogicalOrOp) {
     auto ast = parseSrc("x = true || false;");
     auto scope = buildScopes(ast);
     auto* op = dynamic_cast<LogicalOrOp*>(dynamic_cast<Assignment*>(ast[0].get())->expr.get());
     ASSERT_NE(op, nullptr);
-    EXPECT_EQ(op->left->scope(), scope.get());
-    EXPECT_EQ(op->right->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *op->left), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *op->right), scope.get());
 }
 TEST(ExpressionOpBuildScope, LogicalNotOp) {
     auto ast = parseSrc("x = !true;");
     auto scope = buildScopes(ast);
     auto* op = dynamic_cast<LogicalNotOp*>(dynamic_cast<Assignment*>(ast[0].get())->expr.get());
     ASSERT_NE(op, nullptr);
-    EXPECT_EQ(op->expr->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *op->expr), scope.get());
 }
 TEST(ExpressionOpBuildScope, InequalityOp) {
     auto ast = parseSrc("x = 1 != 2;");
     auto scope = buildScopes(ast);
     auto* op = dynamic_cast<InequalityOp*>(dynamic_cast<Assignment*>(ast[0].get())->expr.get());
     ASSERT_NE(op, nullptr);
-    EXPECT_EQ(op->left->scope(), scope.get());
-    EXPECT_EQ(op->right->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *op->left), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *op->right), scope.get());
 }
 TEST(ExpressionOpBuildScope, GreaterThanOrEqualOp) {
     auto ast = parseSrc("x = 1 >= 2;");
     auto scope = buildScopes(ast);
     auto* op = dynamic_cast<GreaterThanOrEqualOp*>(dynamic_cast<Assignment*>(ast[0].get())->expr.get());
     ASSERT_NE(op, nullptr);
-    EXPECT_EQ(op->left->scope(), scope.get());
-    EXPECT_EQ(op->right->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *op->left), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *op->right), scope.get());
 }
 TEST(ExpressionOpBuildScope, LessThanOrEqualOp) {
     auto ast = parseSrc("x = 1 <= 2;");
     auto scope = buildScopes(ast);
     auto* op = dynamic_cast<LessThanOrEqualOp*>(dynamic_cast<Assignment*>(ast[0].get())->expr.get());
     ASSERT_NE(op, nullptr);
-    EXPECT_EQ(op->left->scope(), scope.get());
-    EXPECT_EQ(op->right->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *op->left), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *op->right), scope.get());
 }
 TEST(ExpressionOpBuildScope, PrimaryIndex) {
     auto ast = parseSrc("x = v[0];");
     auto scope = buildScopes(ast);
     auto* idx = dynamic_cast<PrimaryIndex*>(dynamic_cast<Assignment*>(ast[0].get())->expr.get());
     ASSERT_NE(idx, nullptr);
-    EXPECT_EQ(idx->scope(), scope.get());
-    EXPECT_EQ(idx->left->scope(), scope.get());
-    EXPECT_EQ(idx->index->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *idx), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *idx->left), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *idx->index), scope.get());
 }
 TEST(ExpressionOpBuildScope, PrimaryMember) {
     auto ast = parseSrc("x = v.x;");
     auto scope = buildScopes(ast);
     auto* mem = dynamic_cast<PrimaryMember*>(dynamic_cast<Assignment*>(ast[0].get())->expr.get());
     ASSERT_NE(mem, nullptr);
-    EXPECT_EQ(mem->scope(), scope.get());
-    EXPECT_EQ(mem->left->scope(), scope.get());
-    EXPECT_EQ(mem->member->scope(), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *mem), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *mem->left), scope.get());
+    EXPECT_EQ(scopeOf(*scope, *mem->member), scope.get());
 }
 
 // -- intersection_for build_scope ----------------------------------------
@@ -723,7 +723,7 @@ TEST(IntersectionForBuildScope, Scope) {
     auto* ifor = dynamic_cast<ModularIntersectionFor*>(ast[0].get());
     ASSERT_NE(ifor, nullptr);
     ASSERT_FALSE(ifor->body.empty());
-    EXPECT_NE(ifor->body[0]->scope()->lookupVariable("i"), nullptr);
+    EXPECT_NE(scopeOf(*scope, *ifor->body[0])->lookupVariable("i"), nullptr);
     EXPECT_EQ(scope->lookupVariable("i"), nullptr);
 }
 
@@ -733,7 +733,7 @@ TEST(IntersectionForBuildScope, BlockBody) {
     auto* ifor = dynamic_cast<ModularIntersectionFor*>(ast[0].get());
     ASSERT_NE(ifor, nullptr);
     for (auto& child : ifor->body) {
-        EXPECT_NE(child->scope()->lookupVariable("i"), nullptr);
+        EXPECT_NE(scopeOf(*scope, *child)->lookupVariable("i"), nullptr);
     }
 }
 
@@ -746,7 +746,7 @@ TEST(HoistedModuleDeclarationTest, NestedModuleIsHoisted) {
     ASSERT_NE(outer, nullptr);
     auto* callNode = dynamic_cast<ModularCall*>(outer->children[0].get());
     ASSERT_NE(callNode, nullptr);
-    EXPECT_NE(callNode->scope()->lookupModule("inner"), nullptr);
+    EXPECT_NE(scopeOf(*scope, *callNode)->lookupModule("inner"), nullptr);
 }
 
 TEST(HoistedModuleDeclarationTest, NestedModuleNotVisibleInOuterScope) {

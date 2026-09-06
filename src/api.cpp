@@ -9,6 +9,10 @@
 #include <filesystem>
 #include <fstream>
 #include <set>
+#include <system_error>
+#include <cstdint>
+#include <unordered_map>
+#include <mutex>
 #include <sstream>
 
 namespace oscad {
@@ -86,6 +90,11 @@ std::string formatSyntaxError(const ParserDriver& driver, const std::string& cod
 } // namespace
 
 std::vector<std::unique_ptr<ASTNode>> parseAst(const std::string& code, const std::string& origin, SourceMap* sourceMap) {
+    // Stamps every node this parse builds with one treeId and a dense
+    // slot, so a ScopeTable can address it without the node carrying a
+    // Scope pointer of its own -- see ASTNode::slot().
+    ParseNumberingScope numbering;
+
     ParserDriver driver(origin);
     lexerBeginString(code);
     yy::parser parser(driver);
@@ -100,6 +109,9 @@ std::vector<std::unique_ptr<ASTNode>> parseAst(const std::string& code, const st
 
 std::vector<std::unique_ptr<ASTNode>> getASTFromString(const std::string& code, bool includeComments,
                                                         const std::string& origin) {
+    // Spans attachComments too: it builds CommentedExpr wrappers, and they
+    // belong to the same tree as what they wrap.
+    ParseNumberingScope numbering;
     auto ast = parseAst(code, origin); // propagates ParseError with the full diagnostic
     if (includeComments) {
         ast = attachComments(std::move(ast), code, origin);
@@ -121,6 +133,7 @@ std::string readFile(const std::string& path) {
 
 std::vector<std::unique_ptr<ASTNode>> parseSingleFile(const std::string& filePath, bool includeComments) {
     std::string code = readFile(filePath);
+    ParseNumberingScope numbering;   // spans attachComments -- see getASTFromString
     auto ast = parseAst(code, filePath);
     if (includeComments) {
         ast = attachComments(std::move(ast), code, filePath);
@@ -238,8 +251,115 @@ LibraryFileResult getASTFromLibraryFile(const std::string& currFile, const std::
     return LibraryFileResult{std::move(ast), *found};
 }
 
+
+
+namespace {
+
+using FileAst = std::vector<std::unique_ptr<ASTNode>>;
+using FileAstPtr = std::shared_ptr<const FileAst>;
+
+// One entry per (file, comments) -- keyed by PATH, with the content stamp
+// stored beside the tree rather than in the key. A stale stamp REPLACES the
+// entry instead of adding a second one: an editor re-renders on every save,
+// and a stamp-in-the-key cache would keep a full copy of every version the
+// file ever had.
+struct CacheKey {
+    std::string path;
+    bool comments;
+    bool operator==(const CacheKey& o) const { return comments == o.comments && path == o.path; }
+};
+struct CacheKeyHash {
+    size_t operator()(const CacheKey& k) const {
+        return std::hash<std::string>{}(k.path) ^ (k.comments ? 0x5bf03635U : 0U);
+    }
+};
+struct CacheEntry {
+    std::uintmax_t size = 0;
+    std::int64_t mtime = 0;
+    FileAstPtr ast;
+};
+
+std::mutex g_astCacheMutex;
+std::unordered_map<CacheKey, CacheEntry, CacheKeyHash> g_astCache;
+
+FileAstPtr parseFileShared(const std::string& absPath, bool includeComments) {
+    std::error_code ec;
+    const auto size = fs::file_size(absPath, ec);
+    const std::uintmax_t stampSize = ec ? 0 : size;
+    ec.clear();
+    const auto written = fs::last_write_time(absPath, ec);
+    const std::int64_t stampMtime = ec ? 0 : static_cast<std::int64_t>(written.time_since_epoch().count());
+
+    const CacheKey key{absPath, includeComments};
+    {
+        std::lock_guard<std::mutex> lock(g_astCacheMutex);
+        auto it = g_astCache.find(key);
+        if (it != g_astCache.end() && it->second.size == stampSize && it->second.mtime == stampMtime)
+            return it->second.ast;
+    }
+
+    // Parsed OUTSIDE the lock: parsing a library takes tens of
+    // milliseconds, and holding a global lock across it would serialise
+    // every thread. Two threads racing the same file both parse and one
+    // result is dropped -- wasteful once, never wrong, and far cheaper than
+    // the alternative.
+    auto parsed = std::make_shared<const FileAst>(parseSingleFile(absPath, includeComments));
+    std::lock_guard<std::mutex> lock(g_astCacheMutex);
+    CacheEntry& entry = g_astCache[key];
+    // Whoever writes last wins; the loser's tree stays alive in whatever
+    // ParsedProgram already borrowed it.
+    entry.size = stampSize;
+    entry.mtime = stampMtime;
+    entry.ast = parsed;
+    return parsed;
+}
+
+// Splices includes into a flat statement list of BORROWED nodes, collecting
+// what must stay alive. Mirrors resolveIncludes' walk exactly, including
+// the per-resolution `visited` set that makes a file contribute at most
+// once.
+void collectProgram(const FileAst& nodes, const std::string& currentFile, bool includeComments,
+                    std::set<std::string>& visited, ParsedProgram& out) {
+    for (const auto& node : nodes) {
+        if (node->kind() == NodeKind::IncludeStatement) {
+            const auto& inc = static_cast<const IncludeStatement&>(*node);
+            const std::string& filename = inc.filepath->val;
+            auto libFile = findLibraryFile(currentFile, filename);
+            if (!libFile) {
+                throw std::runtime_error("Included file '" + filename + "' not found. Searched relative to: " +
+                                          (currentFile.empty() ? "current directory" : currentFile));
+            }
+            std::string absLib = fs::absolute(*libFile).string();
+            if (!visited.insert(absLib).second) continue;
+            FileAstPtr included = parseFileShared(absLib, includeComments);
+            out.keepAlive.push_back(included);
+            collectProgram(*included, absLib, includeComments, visited, out);
+        } else {
+            out.nodes.push_back(node.get());
+        }
+    }
+}
+
+} // namespace
+
+ParsedProgram getProgramFromFile(const std::string& file, bool includeComments) {
+    const std::string abs = fs::absolute(file).string();
+    ParsedProgram out;
+    FileAstPtr own = parseFileShared(abs, includeComments);
+    out.keepAlive.push_back(own);
+    std::set<std::string> visited{abs};
+    collectProgram(*own, abs, includeComments, visited, out);
+    return out;
+}
+
 void clearAstCache() {
-    // No-op -- see the ponytail note on getASTFromFile() in api.hpp.
+    std::lock_guard<std::mutex> lock(g_astCacheMutex);
+    g_astCache.clear();
+}
+
+size_t astCacheSize() {
+    std::lock_guard<std::mutex> lock(g_astCacheMutex);
+    return g_astCache.size();
 }
 
 } // namespace oscad

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "openscad_cpp_parser/scope_table.hpp"
+
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -83,6 +85,19 @@ public:
         return *children_.back();
     }
 
+    // The ScopeTable holding every node's scope for this scope tree.
+    // buildScopes() attaches it to the root it returns, so the table lives
+    // exactly as long as the scopes it points at -- which is the ownership
+    // contract callers already keep. Null on a non-root scope; use
+    // rootTable() to reach it from anywhere in the tree.
+    void adoptTable(std::unique_ptr<ScopeTable> table);
+    const ScopeTable* table() const { return ownedTable_.get(); }
+    const ScopeTable* rootTable() const {
+        const Scope* s = this;
+        while (s->parent_) s = s->parent_;
+        return s->ownedTable_.get();
+    }
+
 private:
     static ASTNode* find(const std::unordered_map<std::string, ASTNode*>& table, const std::string& name) {
         auto it = table.find(name);
@@ -94,6 +109,16 @@ private:
     std::unordered_map<std::string, ASTNode*> functions_;
     std::unordered_map<std::string, ASTNode*> modules_;
     std::vector<std::unique_ptr<Scope>> children_;
+    std::unique_ptr<ScopeTable> ownedTable_;   // root only
 };
+
+// The lexical Scope recorded for `node` when `anyScopeInTree`'s tree was
+// built -- the replacement for the ASTNode::scope() field that used to
+// live in the node. Any scope in the tree will do; it walks up to the root
+// that owns the table.
+inline const Scope* scopeOf(const Scope& anyScopeInTree, const ASTNode& node) {
+    const ScopeTable* table = anyScopeInTree.rootTable();
+    return table ? table->get(node) : nullptr;
+}
 
 } // namespace oscad
