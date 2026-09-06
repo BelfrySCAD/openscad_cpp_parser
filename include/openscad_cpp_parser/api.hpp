@@ -1,6 +1,7 @@
 #pragma once
 
 #include "openscad_cpp_parser/ast.hpp"
+#include "openscad_cpp_parser/scope_table.hpp"
 #include "openscad_cpp_parser/source_map.hpp"
 
 #include <memory>
@@ -68,15 +69,10 @@ std::vector<std::unique_ptr<ASTNode>> getASTFromString(const std::string& code, 
 // can't be found/read, or ParseError (see getASTFromString) on a syntax
 // error in any of the involved files.
 //
-// ponytail: unlike the Python reference, this does NOT cache parsed ASTs
-// (in-memory or on-disk) across calls. With unique_ptr ownership, "return
-// the same cached tree to every caller" isn't representable (each caller
-// needs exclusive ownership), and a clone-based cache would need a deep
-// clone() for all 66 node kinds just to support an unmeasured perf
-// optimization. Every call re-parses. Upgrade path: add a per-node
-// clone() (mirroring toJson/toString's per-kind dispatch) and cache
-// serialized snapshots keyed by (path, mtime) if repeated-parse cost of a
-// real workload is shown to matter.
+// This does NOT share or cache anything: every call re-parses the file and
+// every file it includes, and the caller owns all of it. See
+// getProgramFromFile() for the shared, cached form -- the one an evaluator
+// that re-renders the same script should use.
 std::vector<std::unique_ptr<ASTNode>> getASTFromFile(const std::string& file, bool includeComments = false,
                                                       bool processIncludes = true);
 
@@ -95,9 +91,44 @@ LibraryFileResult getASTFromLibraryFile(const std::string& currFile, const std::
 // platform default library dir.
 std::optional<std::string> findLibraryFile(const std::string& currFile, const std::string& libFile);
 
-// No-op: kept for API-shape parity with the Python reference's
-// clear_ast_cache(). See the ponytail note on getASTFromFile() -- this
-// port doesn't cache, so there's nothing to clear.
+// A file's statements with its `include <...>` directives resolved, where
+// each included file's AST is SHARED with every other file that includes
+// it rather than re-parsed.
+//
+// That sharing is the point. Parsing `include <BOSL2/std.scad>` costs
+// ~55ms and is ~82% of evaluating a small BOSL2 script; the library does
+// not change between renders, so re-parsing it every time is the single
+// largest cost in a re-render or a docs build (which renders ~1000
+// examples, each including the same library).
+//
+// Only the per-FILE parses are cached, not a whole resolved program: a
+// file is spliced in at most once per resolution (`visited`), so caching
+// std.scad already-resolved would double its statements in a script that
+// also includes something else depending on it. Re-running the resolution
+// is only pointer pushes.
+struct ParsedProgram {
+    // The flattened statement list, in source order, includes spliced in
+    // where their directives stood. Non-owning: see keepAlive.
+    std::vector<const ASTNode*> nodes;
+    // Holds every AST the above points into -- this file's own parse and
+    // each shared include -- alive for as long as this object. Nodes are
+    // borrowed, never owned, which is what lets two scripts (or two
+    // threads) use the same parsed library at once.
+    std::vector<std::shared_ptr<const std::vector<std::unique_ptr<ASTNode>>>> keepAlive;
+};
+
+// Parses `file` and resolves its includes against the cache, which is keyed
+// by (path, mtime, size) so an edited file re-parses on its own.
+// Thread-safe. Throws exactly as getASTFromFile does.
+ParsedProgram getProgramFromFile(const std::string& file, bool includeComments = false);
+
+// Drops every cached file parse. Nothing already handed out is
+// invalidated -- a ParsedProgram keeps what it borrowed alive.
 void clearAstCache();
+
+// How many file parses the cache is holding. For tests that need to prove
+// the cache replaces an edited file's entry rather than accumulating one
+// per save.
+size_t astCacheSize();
 
 } // namespace oscad
