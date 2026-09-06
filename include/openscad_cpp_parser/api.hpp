@@ -48,6 +48,18 @@ std::unique_ptr<Scope> buildScopes(const std::vector<std::unique_ptr<ASTNode>>& 
 // why this exists. Never takes ownership.
 std::unique_ptr<Scope> buildScopes(const std::vector<ASTNode*>& ast);
 
+// Same, but recording into a table the CALLER owns, and not attaching it to
+// the returned root.
+//
+// For a resolution that spans several files: `use <file>` builds a separate
+// root Scope per used file, but all of them are read back through one
+// evaluation, so their nodes' scopes have to land in ONE table. A per-root
+// table would leave the outer evaluation unable to see anything the nested
+// resolutions recorded -- every node of a used file would read back as
+// having no scope.
+std::unique_ptr<Scope> buildScopesInto(const std::vector<std::unique_ptr<ASTNode>>& ast, ScopeTable& table);
+std::unique_ptr<Scope> buildScopesInto(const std::vector<ASTNode*>& ast, ScopeTable& table);
+
 // Parses `code`. Throws ParseError (with the full caret diagnostic) on a
 // syntax error.
 //
