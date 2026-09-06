@@ -8,26 +8,36 @@
 
 namespace oscad {
 
-std::unique_ptr<Scope> buildScopes(const std::vector<std::unique_ptr<ASTNode>>& ast) {
-    auto owned = std::make_unique<ScopeTable>();
-    ScopeTableScope recording(*owned);
+std::unique_ptr<Scope> buildScopesInto(const std::vector<std::unique_ptr<ASTNode>>& ast, ScopeTable& table) {
+    ScopeTableScope recording(table);
     auto root = std::make_unique<Scope>();
     collectHoistedDeclarations(ast, *root);
     for (auto& node : ast) {
         node->buildScope(*root);
     }
+    return root;
+}
+
+std::unique_ptr<Scope> buildScopes(const std::vector<std::unique_ptr<ASTNode>>& ast) {
+    auto owned = std::make_unique<ScopeTable>();
+    auto root = buildScopesInto(ast, *owned);
     root->adoptTable(std::move(owned));
     return root;
 }
 
-std::unique_ptr<Scope> buildScopes(const std::vector<ASTNode*>& ast) {
-    auto owned = std::make_unique<ScopeTable>();
-    ScopeTableScope recording(*owned);
+std::unique_ptr<Scope> buildScopesInto(const std::vector<ASTNode*>& ast, ScopeTable& table) {
+    ScopeTableScope recording(table);
     auto root = std::make_unique<Scope>();
     collectHoistedDeclarations(ast, *root);
     for (ASTNode* node : ast) {
         node->buildScope(*root);
     }
+    return root;
+}
+
+std::unique_ptr<Scope> buildScopes(const std::vector<ASTNode*>& ast) {
+    auto owned = std::make_unique<ScopeTable>();
+    auto root = buildScopesInto(ast, *owned);
     root->adoptTable(std::move(owned));
     return root;
 }
