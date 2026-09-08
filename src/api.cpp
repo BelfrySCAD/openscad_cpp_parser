@@ -89,6 +89,17 @@ std::string formatSyntaxError(const ParserDriver& driver, const std::string& cod
 
 } // namespace
 
+namespace {
+// See StrictCommaScope (api.hpp). Thread-local so a strict parse on one
+// thread cannot change what another thread is parsing.
+thread_local bool g_strictCommas = false;
+} // namespace
+
+StrictCommaScope::StrictCommaScope() : previous_(g_strictCommas) { g_strictCommas = true; }
+StrictCommaScope::~StrictCommaScope() { g_strictCommas = previous_; }
+
+bool strictCommasEnabled() { return g_strictCommas; }
+
 std::vector<std::unique_ptr<ASTNode>> parseAst(const std::string& code, const std::string& origin, SourceMap* sourceMap) {
     // Stamps every node this parse builds with one treeId and a dense
     // slot, so a ScopeTable can address it without the node carrying a
@@ -96,6 +107,7 @@ std::vector<std::unique_ptr<ASTNode>> parseAst(const std::string& code, const st
     ParseNumberingScope numbering;
 
     ParserDriver driver(origin);
+    driver.strictCommas = g_strictCommas;
     lexerBeginString(code);
     yy::parser parser(driver);
     int rc = parser.parse();
@@ -258,7 +270,8 @@ namespace {
 using FileAst = std::vector<std::unique_ptr<ASTNode>>;
 using FileAstPtr = std::shared_ptr<const FileAst>;
 
-// One entry per (file, comments) -- keyed by PATH, with the content stamp
+// One entry per (file, comments, strict-commas) -- keyed by PATH, with the
+// content stamp
 // stored beside the tree rather than in the key. A stale stamp REPLACES the
 // entry instead of adding a second one: an editor re-renders on every save,
 // and a stamp-in-the-key cache would keep a full copy of every version the
@@ -266,11 +279,18 @@ using FileAstPtr = std::shared_ptr<const FileAst>;
 struct CacheKey {
     std::string path;
     bool comments;
-    bool operator==(const CacheKey& o) const { return comments == o.comments && path == o.path; }
+    // Part of the key, not incidental: the same file parses differently
+    // under StrictCommaScope, so a strict parse must not be served a tree an
+    // earlier lenient parse of it left here (and vice versa).
+    bool strictCommas;
+    bool operator==(const CacheKey& o) const {
+        return comments == o.comments && strictCommas == o.strictCommas && path == o.path;
+    }
 };
 struct CacheKeyHash {
     size_t operator()(const CacheKey& k) const {
-        return std::hash<std::string>{}(k.path) ^ (k.comments ? 0x5bf03635U : 0U);
+        return std::hash<std::string>{}(k.path) ^ (k.comments ? 0x5bf03635U : 0U)
+               ^ (k.strictCommas ? 0x9e3779b9U : 0U);
     }
 };
 struct CacheEntry {
@@ -290,7 +310,7 @@ FileAstPtr parseFileShared(const std::string& absPath, bool includeComments) {
     const auto written = fs::last_write_time(absPath, ec);
     const std::int64_t stampMtime = ec ? 0 : static_cast<std::int64_t>(written.time_since_epoch().count());
 
-    const CacheKey key{absPath, includeComments};
+    const CacheKey key{absPath, includeComments, g_strictCommas};
     {
         std::lock_guard<std::mutex> lock(g_astCacheMutex);
         auto it = g_astCache.find(key);

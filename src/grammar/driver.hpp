@@ -39,6 +39,9 @@ public:
     std::string origin_;
     NodeList result;
     bool hadError = false;
+    // Copied from the ambient StrictCommaScope at parse start (api.cpp), so
+    // one parse's mode cannot change under it mid-run.
+    bool strictCommas = false;
     int errorLine = 0;
     int errorColumn = 0;
     int errorOffset = 0;
