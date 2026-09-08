@@ -247,7 +247,18 @@ parameter:
 arguments:
     %empty                    { $$ = NodeList{}; }
   | argument_seq               { $$ = std::move($1); }
-  | argument_seq ","            { $$ = std::move($1); }
+    // The trailing comma OpenSCAD 2021.01 rejected. Still parsed, then
+    // reported -- @2 is the comma itself, so the caret lands on it rather
+    // than on the whole argument list, which a %expect-style grammar split
+    // could not manage. This one production feeds every call form (module
+    // instantiation, function calls, echo, assert, render, and let), which
+    // is why the whole feature is one rule. See StrictCommaScope (api.hpp).
+  | argument_seq ","            {
+        if (driver.strictCommas) {
+            driver.reportError(@2, "trailing comma in argument list");
+        }
+        $$ = std::move($1);
+    }
   ;
 
 argument_seq:
@@ -263,7 +274,18 @@ argument:
 assignments_expr:
     %empty                          { $$ = NodeList{}; }
   | assignment_expr_seq              { $$ = std::move($1); }
-  | assignment_expr_seq ","           { $$ = std::move($1); }
+    // 2021.01 rejected this one too. `let` does NOT go through `arguments`
+    // in this grammar -- it has its own assignment list, shared with `for`
+    // and `intersection_for` -- so the feature is two productions, not the
+    // one it looks like. 2021.01 rejects a trailing comma in all four:
+    // let(x=1,), for(i=[0:2],), intersection_for(i=[0:1],) and the list
+    // comprehension forms of for. See StrictCommaScope (api.hpp).
+  | assignment_expr_seq ","           {
+        if (driver.strictCommas) {
+            driver.reportError(@2, "trailing comma in assignment list");
+        }
+        $$ = std::move($1);
+    }
   ;
 
 assignment_expr_seq:

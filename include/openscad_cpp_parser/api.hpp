@@ -60,6 +60,44 @@ std::unique_ptr<Scope> buildScopes(const std::vector<ASTNode*>& ast);
 std::unique_ptr<Scope> buildScopesInto(const std::vector<std::unique_ptr<ASTNode>>& ast, ScopeTable& table);
 std::unique_ptr<Scope> buildScopesInto(const std::vector<ASTNode*>& ast, ScopeTable& table);
 
+// Makes a trailing comma in a CALL ARGUMENT LIST a syntax error for as long
+// as it is in scope, matching OpenSCAD 2021.01:
+//
+//     cube(1,);                  // error while this is in scope
+//     echo(let(x = 1, y = 2,) x) // error -- let() parses as a call
+//     a = [2, 4,];               // still fine: 2021.01 accepts it too
+//     module m(a, b,) {}         // still fine, same reason
+//
+// One production (`arguments`) feeds every call form -- module
+// instantiation, function calls, echo, assert, render and let -- so this is
+// one rule, not a family of them. Parameter lists and list literals are
+// deliberately untouched: 2021.01 accepts a trailing comma in both, and
+// rejecting them would fail files it loads happily.
+//
+// A scope object rather than a parameter on all nine parse entry points:
+// this is a parse-wide mode, the same shape ParseNumberingScope already
+// uses, and threading a bool through getASTFromString/getASTFromFile/
+// getASTFromLibraryFile/getProgramFromFile and their helpers would touch
+// every one of them to say the same thing. Nests and restores on scope
+// exit, exceptions included; thread-local, so one thread parsing strictly
+// cannot change what another thread sees.
+//
+// getProgramFromFile()'s cache keys on this too -- a strict parse must not
+// be handed a tree an earlier lenient parse of the same file left behind.
+class StrictCommaScope {
+public:
+    StrictCommaScope();
+    ~StrictCommaScope();
+    StrictCommaScope(const StrictCommaScope&) = delete;
+    StrictCommaScope& operator=(const StrictCommaScope&) = delete;
+
+private:
+    bool previous_;
+};
+
+// Whether a StrictCommaScope is currently in effect on this thread.
+bool strictCommasEnabled();
+
 // Parses `code`. Throws ParseError (with the full caret diagnostic) on a
 // syntax error.
 //
