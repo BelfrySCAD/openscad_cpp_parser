@@ -136,9 +136,14 @@ struct LibraryFileResult {
 LibraryFileResult getASTFromLibraryFile(const std::string& currFile, const std::string& libFile,
                                          bool includeComments = false, bool processIncludes = true);
 
-// OpenSCAD's library search path: (1) directory of currFile, (2)
-// OPENSCADPATH env var (':'-separated on POSIX, ';' on Windows), (3)
-// platform default library dir.
+// OpenSCAD's library search path, in order: (1) directory of currFile,
+// (2) each OPENSCADPATH entry (':'-separated on POSIX, ';' on Windows),
+// (3) the user's own libraries folder, (4) libraries shipped beside this
+// binary. OPENSCADPATH ADDS to (3) and (4) rather than replacing them,
+// which is what OpenSCAD's own parser_init() does.
+std::vector<std::string> librarySearchDirs(const std::string& currFile);
+
+// The first entry of librarySearchDirs() that holds `libFile`.
 std::optional<std::string> findLibraryFile(const std::string& currFile, const std::string& libFile);
 
 // A file's statements with its `include <...>` directives resolved, where

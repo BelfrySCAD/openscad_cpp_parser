@@ -7,6 +7,12 @@
 
 #include <cstdlib>
 #include <filesystem>
+#if defined(_WIN32)
+#include <windows.h>
+#include <shlobj.h>
+#else
+#include <dlfcn.h>
+#endif
 #include <fstream>
 #include <set>
 #include <system_error>
@@ -133,6 +139,22 @@ std::vector<std::unique_ptr<ASTNode>> getASTFromString(const std::string& code, 
 
 namespace {
 
+// A "not found" that says where we actually looked. The old message named
+// only the includer, so "searched relative to X" read as "only X was
+// searched" -- which is how #503 came to be filed against a search that
+// does cover the libraries folder.
+std::string notFound(const char* noun, const std::string& filename, const std::string& currentFile) {
+    std::string msg = std::string(noun) + " '" + filename + "' not found. Searched:";
+    for (const auto& d : librarySearchDirs(currentFile)) {
+        msg += "\n  " + d;
+    }
+    return msg;
+}
+
+} // namespace
+
+namespace {
+
 std::string readFile(const std::string& path) {
     std::ifstream in(path, std::ios::binary);
     if (!in) {
@@ -163,8 +185,7 @@ std::vector<std::unique_ptr<ASTNode>> resolveIncludes(std::vector<std::unique_pt
             const std::string& filename = inc.filepath->val;
             auto libFile = findLibraryFile(currentFile, filename);
             if (!libFile) {
-                throw std::runtime_error("Included file '" + filename + "' not found. Searched relative to: " +
-                                          (currentFile.empty() ? "current directory" : currentFile));
+                throw std::runtime_error(notFound("Included file", filename, currentFile));
             }
             std::string absLib = fs::absolute(*libFile).string();
             if (visited.count(absLib) != 0) {
@@ -185,40 +206,98 @@ std::vector<std::unique_ptr<ASTNode>> resolveIncludes(std::vector<std::unique_pt
 
 } // namespace
 
-std::optional<std::string> findLibraryFile(const std::string& currFile, const std::string& libFile) {
-    std::vector<fs::path> dirs;
-    if (!currFile.empty()) {
-        dirs.push_back(fs::absolute(currFile).parent_path());
-    }
+namespace {
 
-    char pathsep = ':';
-    std::string dfltPath;
-    const char* home = std::getenv("HOME");
+// The user's own libraries folder -- OpenSCAD's
+// PlatformUtils::userLibraryPath(), and the one an installer or a git clone
+// of BOSL2 lands in.
+std::string userLibraryDir() {
 #if defined(_WIN32)
-    pathsep = ';';
-    const char* userProfile = std::getenv("USERPROFILE");
-    if (userProfile) {
-        dfltPath = std::string(userProfile) + "\\Documents\\OpenSCAD\\libraries";
+    // ASK Windows where My Documents is rather than assuming
+    // %USERPROFILE%\Documents. OneDrive's Known Folder Move -- on by default
+    // on a new machine -- relocates it to %USERPROFILE%\OneDrive\Documents,
+    // and a library OpenSCAD itself installed then sat somewhere we never
+    // looked (BelfrySCAD #503). Same call and same flag OpenSCAD makes
+    // (PlatformUtils-win.cc getFolderPath).
+    wchar_t buf[MAX_PATH] = {0};
+    if (SHGetFolderPathW(nullptr, CSIDL_PERSONAL, nullptr, SHGFP_TYPE_CURRENT, buf) == S_OK) {
+        return (fs::path(buf) / "OpenSCAD" / "libraries").string();
     }
-#elif defined(__APPLE__)
-    if (home) {
-        dfltPath = std::string(home) + "/Documents/OpenSCAD/libraries";
+    const char* userProfile = std::getenv("USERPROFILE");
+    return userProfile ? (fs::path(userProfile) / "Documents" / "OpenSCAD" / "libraries").string()
+                       : std::string();
+#else
+    const char* home = std::getenv("HOME");
+    if (!home) {
+        return {};
+    }
+#if defined(__APPLE__)
+    return (fs::path(home) / "Documents" / "OpenSCAD" / "libraries").string();
+#else
+    return (fs::path(home) / ".local" / "share" / "OpenSCAD" / "libraries").string();
+#endif
+#endif
+}
+
+// Libraries shipped alongside this build -- OpenSCAD's
+// PlatformUtils::resourcePath("libraries"). "Alongside" means beside the
+// binary this code was linked into: the CLI executable, or the Python
+// extension inside its installed package.
+// ponytail: one candidate directory, no ../share/openscad/libraries walk --
+// add the walk if a packaging layout ever puts the libraries somewhere
+// other than next to the binary.
+std::string bundledLibraryDir() {
+    fs::path self;
+#if defined(_WIN32)
+    HMODULE mod = nullptr;
+    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                               | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCWSTR>(&userLibraryDir), &mod)) {
+        wchar_t buf[MAX_PATH] = {0};
+        if (GetModuleFileNameW(mod, buf, MAX_PATH)) {
+            self = buf;
+        }
     }
 #else
-    if (home) {
-        dfltPath = std::string(home) + "/.local/share/OpenSCAD/libraries";
+    Dl_info info;
+    if (dladdr(reinterpret_cast<void*>(&userLibraryDir), &info) && info.dli_fname) {
+        self = info.dli_fname;
     }
 #endif
+    if (self.empty()) {
+        return {};
+    }
+    std::error_code ec;
+    return (fs::absolute(self, ec).parent_path() / "libraries").string();
+}
 
+} // namespace
+
+std::vector<std::string> librarySearchDirs(const std::string& currFile) {
+    std::vector<std::string> dirs;
+    if (!currFile.empty()) {
+        dirs.push_back(fs::absolute(currFile).parent_path().string());
+    }
+
+#if defined(_WIN32)
+    const char pathsep = ';';
+#else
+    const char pathsep = ':';
+#endif
+
+    // OPENSCADPATH comes FIRST and adds to the built-in paths rather than
+    // replacing them -- exactly what OpenSCAD's parser_init() does. It used
+    // to replace them, so setting the variable for one library hid every
+    // other, including a BOSL2 sitting in the default folder (#503).
     const char* envPath = std::getenv("OPENSCADPATH");
-    std::string env = envPath ? std::string(envPath) : dfltPath;
-    if (!env.empty()) {
+    if (envPath) {
+        std::string env(envPath);
         size_t start = 0;
         while (start <= env.size()) {
             size_t pos = env.find(pathsep, start);
             std::string part = (pos == std::string::npos) ? env.substr(start) : env.substr(start, pos - start);
             if (!part.empty()) {
-                dirs.emplace_back(part);
+                dirs.push_back(part);
             }
             if (pos == std::string::npos) {
                 break;
@@ -227,8 +306,17 @@ std::optional<std::string> findLibraryFile(const std::string& currFile, const st
         }
     }
 
-    for (const auto& d : dirs) {
-        fs::path candidate = d / libFile;
+    for (const std::string& d : {userLibraryDir(), bundledLibraryDir()}) {
+        if (!d.empty()) {
+            dirs.push_back(d);
+        }
+    }
+    return dirs;
+}
+
+std::optional<std::string> findLibraryFile(const std::string& currFile, const std::string& libFile) {
+    for (const auto& d : librarySearchDirs(currFile)) {
+        fs::path candidate = fs::path(d) / libFile;
         std::error_code ec;
         if (fs::is_regular_file(candidate, ec)) {
             return candidate.string();
@@ -255,9 +343,7 @@ LibraryFileResult getASTFromLibraryFile(const std::string& currFile, const std::
                                          bool processIncludes) {
     auto found = findLibraryFile(currFile, libFile);
     if (!found) {
-        throw std::runtime_error("Library file '" + libFile +
-                                  "' not found in search paths. Searched in: current file directory, OPENSCADPATH, and "
-                                  "platform default paths.");
+        throw std::runtime_error(notFound("Library file", libFile, currFile));
     }
     auto ast = getASTFromFile(*found, includeComments, processIncludes);
     return LibraryFileResult{std::move(ast), *found};
@@ -346,8 +432,7 @@ void collectProgram(const FileAst& nodes, const std::string& currentFile, bool i
             const std::string& filename = inc.filepath->val;
             auto libFile = findLibraryFile(currentFile, filename);
             if (!libFile) {
-                throw std::runtime_error("Included file '" + filename + "' not found. Searched relative to: " +
-                                          (currentFile.empty() ? "current directory" : currentFile));
+                throw std::runtime_error(notFound("Included file", filename, currentFile));
             }
             std::string absLib = fs::absolute(*libFile).string();
             if (!visited.insert(absLib).second) continue;
