@@ -38,7 +38,11 @@ target_include_directories(openscad_cpp_parser PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/grammar
   ${CMAKE_CURRENT_BINARY_DIR}
 )
-target_link_libraries(openscad_cpp_parser PUBLIC nlohmann_json::nlohmann_json)
+# CMAKE_DL_LIBS is -ldl for api.cpp's dladdr() -- empty on macOS and
+# Windows, where it lives in libSystem/kernel32. A local macOS build
+# therefore links fine and manylinux (glibc < 2.34, dl still a separate
+# library) does not: caught only by a wheel build.
+target_link_libraries(openscad_cpp_parser PUBLIC nlohmann_json::nlohmann_json ${CMAKE_DL_LIBS})
 # SHGetFolderPathW, for the real My Documents rather than an assumed
 # %USERPROFILE%\Documents -- see api.cpp userLibraryDir().
 if(WIN32)
