@@ -39,6 +39,11 @@ target_include_directories(openscad_cpp_parser PRIVATE
   ${CMAKE_CURRENT_BINARY_DIR}
 )
 target_link_libraries(openscad_cpp_parser PUBLIC nlohmann_json::nlohmann_json)
+# SHGetFolderPathW, for the real My Documents rather than an assumed
+# %USERPROFILE%\Documents -- see api.cpp userLibraryDir().
+if(WIN32)
+  target_link_libraries(openscad_cpp_parser PUBLIC shell32)
+endif()
 target_compile_options(openscad_cpp_parser PRIVATE
   $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra>
 )

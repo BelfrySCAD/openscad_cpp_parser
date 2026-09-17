@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <random>
@@ -137,4 +139,88 @@ TEST(FileApi, FindLibraryFileSearchesCurrentFileDirectory) {
 TEST(FileApi, FindLibraryFileReturnsNulloptWhenMissing) {
     auto found = findLibraryFile("", "definitely_missing_file_xyz.scad");
     EXPECT_FALSE(found.has_value());
+}
+
+namespace {
+
+// RAII OPENSCADPATH, so one test's setting cannot leak into the next.
+class ScopedOpenscadPath {
+public:
+    explicit ScopedOpenscadPath(const std::string& value) {
+        const char* prev = std::getenv("OPENSCADPATH");
+        had_ = prev != nullptr;
+        if (had_) prev_ = prev;
+        set(value.c_str());
+    }
+    ~ScopedOpenscadPath() {
+        if (had_) {
+            set(prev_.c_str());
+        } else {
+#if defined(_WIN32)
+            _putenv_s("OPENSCADPATH", "");
+#else
+            unsetenv("OPENSCADPATH");
+#endif
+        }
+    }
+private:
+    static void set(const char* v) {
+#if defined(_WIN32)
+        _putenv_s("OPENSCADPATH", v);
+#else
+        setenv("OPENSCADPATH", v, 1);
+#endif
+    }
+    bool had_ = false;
+    std::string prev_;
+};
+
+} // namespace
+
+TEST(FileApi, OpenscadPathAddsToTheBuiltInDirsRatherThanReplacingThem) {
+    // BelfrySCAD #503: `env = envPath ? envPath : dfltPath` meant setting
+    // OPENSCADPATH for one library hid every library in the default folder.
+    std::vector<std::string> without = librarySearchDirs("");
+    TempDir dir;
+    ScopedOpenscadPath scoped(dir.path().string());
+    std::vector<std::string> with = librarySearchDirs("");
+
+    EXPECT_EQ(with.size(), without.size() + 1);
+    EXPECT_EQ(with.front(), dir.path().string());  // and it is searched FIRST
+    for (const auto& d : without) {
+        EXPECT_NE(std::find(with.begin(), with.end(), d), with.end()) << d;
+    }
+}
+
+TEST(FileApi, FindLibraryFileSearchesOpenscadPath) {
+    TempDir libs;
+    fs::create_directories(libs.path() / "MYLIB");
+    fs::path libFile = libs.path() / "MYLIB" / "std.scad";
+    writeFile(libFile, "x = 1;\n");
+
+    TempDir docs;
+    fs::path mainFile = docs.path() / "main.scad";
+    writeFile(mainFile, "x = 1;\n");
+
+    ScopedOpenscadPath scoped(libs.path().string());
+    auto found = findLibraryFile(mainFile.string(), "MYLIB/std.scad");
+    ASSERT_TRUE(found.has_value());
+    EXPECT_EQ(fs::path(*found), libFile);
+}
+
+TEST(FileApi, MissingIncludeErrorNamesEveryDirectorySearched) {
+    TempDir dir;
+    fs::path mainFile = dir.path() / "main.scad";
+    writeFile(mainFile, "include <NOPE/std.scad>\n");
+
+    try {
+        getASTFromFile(mainFile.string());
+        FAIL() << "expected a missing-include error";
+    } catch (const std::runtime_error& e) {
+        std::string msg = e.what();
+        EXPECT_NE(msg.find("NOPE/std.scad"), std::string::npos) << msg;
+        for (const auto& d : librarySearchDirs(mainFile.string())) {
+            EXPECT_NE(msg.find(d), std::string::npos) << msg;
+        }
+    }
 }
