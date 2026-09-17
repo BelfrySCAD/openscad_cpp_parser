@@ -8,6 +8,11 @@
 #include <cstdlib>
 #include <filesystem>
 #if defined(_WIN32)
+// NOMINMAX or windows.h's max()/min() macros eat std::max below -- MSVC
+// caught it as "illegal token on right side of '::'", which names neither
+// the macro nor the header.
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shlobj.h>
 #else
