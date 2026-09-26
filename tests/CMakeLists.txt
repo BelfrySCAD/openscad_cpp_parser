@@ -27,6 +27,7 @@ add_executable(oscad_tests
   test_node_str.cpp
   test_render_expression.cpp
   test_strict_commas.cpp
+  test_concurrent_parse.cpp
 )
 target_link_libraries(oscad_tests PRIVATE openscad_cpp_parser GTest::gtest_main)
 

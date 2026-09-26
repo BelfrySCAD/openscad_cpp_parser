@@ -119,10 +119,25 @@ std::vector<std::unique_ptr<ASTNode>> parseAst(const std::string& code, const st
 
     ParserDriver driver(origin);
     driver.strictCommas = g_strictCommas;
-    lexerBeginString(code);
-    yy::parser parser(driver);
-    int rc = parser.parse();
-    lexerEnd();
+    int rc;
+    {
+        // The flex scanner is global state (grammar/lexer_api.hpp), so two
+        // threads parsing at once lexed each other's input and crashed -- in
+        // BelfrySCAD, a render worker parsing its file while the UI thread
+        // parsed the buffer for the Customizer: an intermittent 0xC0000005
+        // on Windows. One parse at a time; a parse is milliseconds, and the
+        // shared file cache means a library is parsed once, not per thread.
+        // ponytail: a global lock; a reentrant scanner (%option reentrant +
+        // a yyscan_t through the driver) if parsing ever needs to scale.
+        static std::mutex scannerMutex;
+        std::lock_guard<std::mutex> lock(scannerMutex);
+        struct EndLexer {   // lexerEnd() even when parse() throws
+            ~EndLexer() { lexerEnd(); }
+        } endLexer;
+        lexerBeginString(code);
+        yy::parser parser(driver);
+        rc = parser.parse();
+    }
 
     if (rc != 0 || driver.hadError) {
         throw ParseError(formatSyntaxError(driver, code, origin, sourceMap));
@@ -409,11 +424,11 @@ FileAstPtr parseFileShared(const std::string& absPath, bool includeComments) {
             return it->second.ast;
     }
 
-    // Parsed OUTSIDE the lock: parsing a library takes tens of
-    // milliseconds, and holding a global lock across it would serialise
-    // every thread. Two threads racing the same file both parse and one
-    // result is dropped -- wasteful once, never wrong, and far cheaper than
-    // the alternative.
+    // Parsed outside THIS lock, so a cache lookup never waits behind a
+    // parse. (parseAst serialises the scanner itself: this comment once
+    // called concurrent parses "never wrong", and they were -- the scanner
+    // is global state.) Two threads racing the same file each parse it in
+    // turn and one result is dropped: wasteful once, never wrong.
     auto parsed = std::make_shared<const FileAst>(parseSingleFile(absPath, includeComments));
     std::lock_guard<std::mutex> lock(g_astCacheMutex);
     CacheEntry& entry = g_astCache[key];
