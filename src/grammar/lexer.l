@@ -72,11 +72,19 @@ const std::unordered_map<std::string, KeywordFactory>& keywordTable() {
 %x INCFILE
 
 IDENT   \$?[_A-Za-z][A-Za-z0-9_]*
+UTF8CH  [\xc2-\xdf][\x80-\xbf]|[\xe0-\xef][\x80-\xbf]{2}|[\xf0-\xf4][\x80-\xbf]{3}
 NUMLIT  0[xX][0-9A-Fa-f]+|[0-9]+([.][0-9]*)?([eE][+-]?[0-9]+)?|[.][0-9]+([eE][+-]?[0-9]+)?
 
 %%
 
 [ \t\r\n]+              { /* skip whitespace */ }
+\xc2\xa0|\xef\xbb\xbf|\xa0 {
+    // Also whitespace, as in OpenSCAD's lexer.l: U+00A0 NO-BREAK SPACE
+    // (C2 A0), which Qt's editor silently turns into a space -- so a file
+    // holding one parsed in the editor and failed from the command line --
+    // U+FEFF (EF BB BF, a byte-order mark, anywhere in the file) and a bare
+    // A0, Latin-1's no-break space.
+}
 "//"[^\n]*               { /* skip line comment */ }
 "/*"([^*]|\*+[^*/])*\*+"/" { /* skip block comment */ }
 
@@ -162,8 +170,20 @@ NUMLIT  0[xX][0-9A-Fa-f]+|[0-9]+([.][0-9]*)?([eE][+-]?[0-9]+)?|[.][0-9]+([eE][+-
 ">" { return yy::parser::make_GTOP(driver.currentTokenLoc()); }
 "#" { return yy::parser::make_HASHOP(driver.currentTokenLoc()); }
 
-. {
+{UTF8CH} {
+    // A whole character, so the message stays valid UTF-8: quoting just its
+    // first byte made a message no consumer could decode.
     driver.reportError(driver.currentTokenLoc(), std::string("unexpected character '") + yytext + "'");
+}
+. {
+    // A byte that starts no valid UTF-8 character: named, not quoted.
+    std::string shown(yytext);
+    const auto byte = static_cast<unsigned char>(yytext[0]);
+    if (byte >= 0x80 || byte < 0x20) {
+        static const char hex[] = "0123456789ABCDEF";
+        shown = std::string("\\x") + hex[byte >> 4] + hex[byte & 0xF];
+    }
+    driver.reportError(driver.currentTokenLoc(), "unexpected character '" + shown + "'");
 }
 
 <<EOF>> { return yy::parser::make_YYEOF(driver.currentTokenLoc()); }

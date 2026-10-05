@@ -473,3 +473,30 @@ TEST(LexicalStrings, BackslashNewlineStillAdvancesTheLineNumber) {
     EXPECT_EQ(ast[0]->position().line, 1);
     EXPECT_EQ(ast[1]->position().line, 3) << "the continuation consumed a line";
 }
+
+// As in OpenSCAD's lexer: U+00A0, U+FEFF and a bare Latin-1 A0 are whitespace.
+TEST(LexicalWhitespace, NoBreakSpaceByteOrderMarkAndLatin1A0) {
+    for (const char* ws : {"\xc2\xa0", "\xef\xbb\xbf", "\xa0"}) {
+        auto ast = parseSrc(std::string(ws) + "a" + ws + "=" + ws + "1;" + ws + "\nb = 2;");
+        ASSERT_EQ(ast.size(), 2u);
+        EXPECT_EQ(ast[1]->position().line, 2);
+    }
+}
+
+// The message quotes a whole character, and names a byte that starts none,
+// so it is always valid UTF-8.
+TEST(LexicalWhitespace, UnexpectedCharacterMessageIsValidUtf8) {
+    const std::pair<const char*, const char*> cases[] = {
+        {"a = 1 \xc3\xa9;", "unexpected character '\xc3\xa9'"},
+        {"a = 1 \xc2;", "unexpected character '\\xC2'"},
+        {"a = 1 \xff;", "unexpected character '\\xFF'"},
+    };
+    for (const auto& [src, want] : cases) {
+        try {
+            parseSrc(src);
+            FAIL() << "expected a parse error for " << src;
+        } catch (const ParseError& e) {
+            EXPECT_NE(std::string(e.what()).find(want), std::string::npos) << e.what();
+        }
+    }
+}
