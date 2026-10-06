@@ -150,6 +150,12 @@ json toJsonImpl(const ASTNode& node, bool includePos) {
             j["body"] = valueToJson(n.body.get(), includePos);
             break;
         }
+        case NodeKind::ProfileTimeOp: {
+            auto& n = static_cast<const ProfileTimeOp&>(node);
+            j["arguments"] = listToJson(n.arguments, includePos);
+            j["body"] = valueToJson(n.body.get(), includePos);
+            break;
+        }
         case NodeKind::AssertOp: {
             auto& n = static_cast<const AssertOp&>(node);
             j["arguments"] = listToJson(n.arguments, includePos);
@@ -445,6 +451,11 @@ const std::unordered_map<std::string, Builder>& registry() {
          [](const json& j, Position pos) -> std::unique_ptr<ASTNode> {
              return std::make_unique<EchoOp>(std::move(pos), listFromJson<Argument>(j, "arguments"),
                                               childFromJson<Expression>(j, "body"));
+         }},
+        {"ProfileTimeOp",
+         [](const json& j, Position pos) -> std::unique_ptr<ASTNode> {
+             return std::make_unique<ProfileTimeOp>(std::move(pos), listFromJson<Argument>(j, "arguments"),
+                                                     childFromJson<Expression>(j, "body"));
          }},
         {"AssertOp",
          [](const json& j, Position pos) -> std::unique_ptr<ASTNode> {

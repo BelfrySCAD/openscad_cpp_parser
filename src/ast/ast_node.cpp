@@ -21,6 +21,7 @@ const char* nodeKindName(NodeKind kind) {
         case NodeKind::LetOp: return "LetOp";
         case NodeKind::EchoOp: return "EchoOp";
         case NodeKind::AssertOp: return "AssertOp";
+        case NodeKind::ProfileTimeOp: return "ProfileTimeOp";
         case NodeKind::FunctionLiteral: return "FunctionLiteral";
         case NodeKind::UnaryMinusOp: return "UnaryMinusOp";
         case NodeKind::AdditionOp: return "AdditionOp";

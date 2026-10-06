@@ -104,6 +104,7 @@ NodePtr makeAssignment(ParserDriver& driver, const OscadLocation& loc, const Osc
 
 NodePtr makeLetOp(ParserDriver& driver, const OscadLocation& loc, NodeList assignments, NodePtr body);
 NodePtr makeEchoOp(ParserDriver& driver, const OscadLocation& loc, NodeList arguments, NodePtr body);
+NodePtr makeProfileTimeOp(ParserDriver& driver, const OscadLocation& loc, NodeList arguments, NodePtr body);
 NodePtr makeAssertOp(ParserDriver& driver, const OscadLocation& loc, NodeList arguments, NodePtr body);
 NodePtr makeFunctionLiteral(ParserDriver& driver, const OscadLocation& loc, NodeList parameters, NodePtr body);
 

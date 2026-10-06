@@ -134,6 +134,18 @@ void EchoOp::buildScope(Scope& parentScope) {
     body->buildScope(parentScope);
 }
 
+std::string ProfileTimeOp::toString() const {
+    return "profile_time(" + joinToString(arguments, ", ") + ") " + body->toString();
+}
+
+void ProfileTimeOp::buildScope(Scope& parentScope) {
+    setScope(parentScope);
+    for (auto& a : arguments) {
+        a->buildScope(parentScope);
+    }
+    body->buildScope(parentScope);
+}
+
 std::string AssertOp::toString() const {
     return "assert(" + joinToString(arguments, ", ") + ") " + body->toString();
 }
@@ -219,6 +231,7 @@ int operatorPrecedence(NodeKind kind) {
         case NodeKind::LetOp:
         case NodeKind::EchoOp:
         case NodeKind::AssertOp:
+        case NodeKind::ProfileTimeOp:
         case NodeKind::FunctionLiteral:
             return 0;
         case NodeKind::LogicalOrOp:
