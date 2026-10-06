@@ -26,6 +26,7 @@ add_executable(oscad_tests
   test_ast_generation.cpp
   test_node_str.cpp
   test_render_expression.cpp
+  test_profile_time.cpp
   test_strict_commas.cpp
   test_concurrent_parse.cpp
 )

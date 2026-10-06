@@ -217,6 +217,20 @@ public:
     void buildScope(Scope& parentScope) override;
 };
 
+// `profile_time(arguments...) body` -- same shape as EchoOp; times the body.
+// Unlike echo/assert the body is required: timing nothing is meaningless.
+class ProfileTimeOp : public Expression {
+public:
+    ProfileTimeOp(Position position, std::vector<std::unique_ptr<Argument>> arguments, std::unique_ptr<Expression> body)
+        : Expression(NodeKind::ProfileTimeOp, std::move(position)), arguments(std::move(arguments)), body(std::move(body)) {}
+
+    std::vector<std::unique_ptr<Argument>> arguments;
+    std::unique_ptr<Expression> body;
+
+    std::string toString() const override;
+    void buildScope(Scope& parentScope) override;
+};
+
 // `assert(arguments...) body` -- same shape as EchoOp.
 class AssertOp : public Expression {
 public:

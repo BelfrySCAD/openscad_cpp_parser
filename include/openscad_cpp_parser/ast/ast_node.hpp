@@ -34,6 +34,7 @@ enum class NodeKind {
     LetOp,
     EchoOp,
     AssertOp,
+    ProfileTimeOp,
     FunctionLiteral,
     // Operators
     UnaryMinusOp,

@@ -52,6 +52,9 @@ const std::unordered_map<std::string, KeywordFactory>& keywordTable() {
         // apart from a function call. Note `$render` still lexes as NAME --
         // this table is keyed on the full IDENT text, including the `$`.
         {"render", [](const OscadLocation& l) { return yy::parser::make_KW_RENDER(l); }},
+        // Reserved for the same reason as `render`: its expression form
+        // (`x = profile_time("label") expr;`) starts like a function call.
+        {"profile_time", [](const OscadLocation& l) { return yy::parser::make_KW_PROFILE_TIME(l); }},
         {"undef", [](const OscadLocation& l) { return yy::parser::make_KW_UNDEF(l); }},
         {"true", [](const OscadLocation& l) { return yy::parser::make_KW_TRUE(l); }},
         {"false", [](const OscadLocation& l) { return yy::parser::make_KW_FALSE(l); }},

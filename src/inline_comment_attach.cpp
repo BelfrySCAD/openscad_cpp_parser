@@ -180,6 +180,12 @@ void classifyNode(ASTNode& node, std::vector<ExprSlot>& exprFields, std::vector<
             addExpr(n.body, exprFields);
             break;
         }
+        case NodeKind::ProfileTimeOp: {
+            auto& n = static_cast<ProfileTimeOp&>(node);
+            addArgumentExprList(n.arguments, exprFields);
+            addExpr(n.body, exprFields);
+            break;
+        }
         case NodeKind::AssertOp: {
             auto& n = static_cast<AssertOp&>(node);
             addArgumentExprList(n.arguments, exprFields);

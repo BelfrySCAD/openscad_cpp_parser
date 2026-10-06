@@ -93,6 +93,7 @@
   KW_INTERSECTION_FOR "intersection_for"
   KW_EACH "each"
   KW_RENDER "render"
+  KW_PROFILE_TIME "profile_time"
   KW_UNDEF "undef"
   KW_TRUE "true"
   KW_FALSE "false"
@@ -158,7 +159,7 @@
 %type <NodePtr> modifier_show_only modifier_highlight modifier_background modifier_disable
 %type <NodePtr> if_statement ifelse_statement
 %type <NodePtr> modular_for modular_intersection_for modular_let modular_assert modular_echo modular_call
-%type <NodePtr> render_stmt render_expr
+%type <NodePtr> render_stmt render_expr profile_time_stmt
 %type <NodePtr> expr opchain postfix primary
 %type <NodePtr> range_expr vector_expr vector_element
 %type <NodePtr> listcomp_elements listcomp_paren_expr listcomp_let listcomp_each
@@ -330,6 +331,7 @@ single_module_instantiation:
   | modular_echo                  { $$ = std::move($1); }
   | modular_call                   { $$ = std::move($1); }
   | render_stmt                     { $$ = std::move($1); }
+  | profile_time_stmt                { $$ = std::move($1); }
   ;
 
 modular_for:
@@ -378,6 +380,14 @@ render_stmt:
     }
   ;
 
+// Same arrangement as render_stmt: the keyword exists only for the
+// expression form, and the statement form is an ordinary builtin call.
+profile_time_stmt:
+    "profile_time" "(" arguments ")" child_statement {
+      $$ = makeModularCall(driver, @$, @1, "profile_time", std::move($3), std::move($5));
+    }
+  ;
+
 // -- Expressions ----------------------------------------------------------
 //
 // `expr` covers let/assert/echo/funclit_def/ternary plus the operator
@@ -393,6 +403,7 @@ expr:
   | "assert" "(" arguments ")"            { $$ = makeAssertOp(driver, @$, std::move($3), makeUndefinedLiteral(driver, @$)); }
   | "echo" "(" arguments ")" expr          { $$ = makeEchoOp(driver, @$, std::move($3), std::move($5)); }
   | "echo" "(" arguments ")"                { $$ = makeEchoOp(driver, @$, std::move($3), makeUndefinedLiteral(driver, @$)); }
+  | "profile_time" "(" arguments ")" expr    { $$ = makeProfileTimeOp(driver, @$, std::move($3), std::move($5)); }
   | "function" "(" parameters ")" expr        { $$ = makeFunctionLiteral(driver, @$, std::move($3), std::move($5)); }
   | opchain "?" expr ":" expr                  { $$ = makeTernaryOp(driver, @$, std::move($1), std::move($3), std::move($5)); }
   | opchain                                     { $$ = std::move($1); }

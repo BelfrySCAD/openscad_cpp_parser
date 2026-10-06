@@ -88,6 +88,11 @@ NodePtr makeEchoOp(ParserDriver& driver, const OscadLocation& loc, NodeList argu
                                      nodeCast<Expression>(std::move(body)));
 }
 
+NodePtr makeProfileTimeOp(ParserDriver& driver, const OscadLocation& loc, NodeList arguments, NodePtr body) {
+    return std::make_unique<ProfileTimeOp>(driver.toPosition(loc), nodeListCast<Argument>(std::move(arguments)),
+                                            nodeCast<Expression>(std::move(body)));
+}
+
 NodePtr makeAssertOp(ParserDriver& driver, const OscadLocation& loc, NodeList arguments, NodePtr body) {
     return std::make_unique<AssertOp>(driver.toPosition(loc), nodeListCast<Argument>(std::move(arguments)),
                                        nodeCast<Expression>(std::move(body)));

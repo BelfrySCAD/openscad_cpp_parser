@@ -486,6 +486,9 @@ std::string fmtExpr(const ASTNode& exprNode, int indent, int w) {
         }
         return "echo(" + args + ")\n" + pad + fmtExpr(*e->body, indent, w);
     }
+    if (auto* p = dynamic_cast<const ProfileTimeOp*>(&exprNode)) {
+        return "profile_time(" + joinToString(p->arguments, ", ") + ")\n" + pad + fmtExpr(*p->body, indent, w);
+    }
     if (auto* l = dynamic_cast<const LetOp*>(&exprNode)) {
         return fmtLetOpExpr(*l, indent, w);
     }
