@@ -483,6 +483,22 @@ TEST(LexicalWhitespace, NoBreakSpaceByteOrderMarkAndLatin1A0) {
     }
 }
 
+// U+2028/U+2029/U+0085 are whitespace that ends a line comment, without
+// counting as a line (BelfrySCAD's editor numbers lines by block, and a
+// U+2028 sits inside one).
+TEST(LexicalWhitespace, UnicodeLineSeparatorsEndACommentButNotALine) {
+    for (const char* sep : {"\xe2\x80\xa8", "\xe2\x80\xa9", "\xc2\x85"}) {
+        const std::string src = std::string("a = 1;") + sep + "b = 2; // note" + sep + "c = 3;\nd = 4;";
+        auto ast = parseSrc(src);
+        ASSERT_EQ(ast.size(), 4u) << "the comment swallowed c = 3";
+        EXPECT_EQ(ast[2]->position().line, 1);
+        EXPECT_EQ(size_t(ast[2]->position().start_offset), src.find("c = 3"));
+        EXPECT_EQ(ast[3]->position().line, 2);
+    }
+    // Other multi-byte characters stay inside the comment.
+    EXPECT_EQ(parseSrc("a = 1; // \xe2\x80\x94 \xc2\xa0 \xe2\x82\xac c = 3;\nb = 2;").size(), 2u);
+}
+
 // The message quotes a whole character, and names a byte that starts none,
 // so it is always valid UTF-8.
 TEST(LexicalWhitespace, UnexpectedCharacterMessageIsValidUtf8) {
