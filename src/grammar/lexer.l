@@ -88,7 +88,17 @@ NUMLIT  0[xX][0-9A-Fa-f]+|[0-9]+([.][0-9]*)?([eE][+-]?[0-9]+)?|[.][0-9]+([eE][+-
     // U+FEFF (EF BB BF, a byte-order mark, anywhere in the file) and a bare
     // A0, Latin-1's no-break space.
 }
-"//"[^\n]*               { /* skip line comment */ }
+\xe2\x80\xa8|\xe2\x80\xa9|\xc2\x85 {
+    // U+2028 LINE SEPARATOR, U+2029 PARAGRAPH SEPARATOR and U+0085 NEXT
+    // LINE: line breaks to look at, so whitespace that also ends a `//`
+    // comment (below). Qt's editor types U+2028 for Shift+Enter, and it
+    // shows as a new line (BelfrySCAD #949). It does NOT count as a line:
+    // the editor numbers its lines by block and a U+2028 sits inside one,
+    // so every line and column after it still matches the editor's.
+    // OpenSCAD's lexer rejects all three.
+}
+    /* A line comment ends at a newline or at any separator above. */
+"//"([^\n\xe2\xc2]|\xe2[^\x80\n]|\xe2\x80[^\xa8\xa9\n]|\xc2[^\x85\n])* { /* skip line comment */ }
 "/*"([^*]|\*+[^*/])*\*+"/" { /* skip block comment */ }
 
 {IDENT} {
