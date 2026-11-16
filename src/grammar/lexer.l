@@ -35,8 +35,6 @@ using KeywordFactory = std::function<yy::parser::symbol_type(const OscadLocation
 
 const std::unordered_map<std::string, KeywordFactory>& keywordTable() {
     static const std::unordered_map<std::string, KeywordFactory> table = {
-        {"use", [](const OscadLocation& l) { return yy::parser::make_KW_USE(l); }},
-        {"include", [](const OscadLocation& l) { return yy::parser::make_KW_INCLUDE(l); }},
         {"module", [](const OscadLocation& l) { return yy::parser::make_KW_MODULE(l); }},
         {"function", [](const OscadLocation& l) { return yy::parser::make_KW_FUNCTION(l); }},
         {"let", [](const OscadLocation& l) { return yy::parser::make_KW_LET(l); }},
@@ -101,15 +99,26 @@ NUMLIT  0[xX][0-9A-Fa-f]+|[0-9]+([.][0-9]*)?([eE][+-]?[0-9]+)?|[.][0-9]+([eE][+-
 "//"([^\n\xe2\xc2]|\xe2[^\x80\n]|\xe2\x80[^\xa8\xa9\n]|\xc2[^\x85\n])* { /* skip line comment */ }
 "/*"([^*]|\*+[^*/])*\*+"/" { /* skip block comment */ }
 
+    /* `use` and `include` are keywords only when a `<` follows, as in
+       OpenSCAD's lexer; anywhere else they are ordinary names, so
+       `module m(include = undef)` parses (BelfrySCAD #1138). The `<` is
+       trailing context: yytext is just the word, and longest-match counts
+       the context, so this beats {IDENT}. */
+"use"/[ \t\r\n]*"<" {
+    BEGIN(INCFILE);
+    return yy::parser::make_KW_USE(driver.currentTokenLoc());
+}
+"include"/[ \t\r\n]*"<" {
+    BEGIN(INCFILE);
+    return yy::parser::make_KW_INCLUDE(driver.currentTokenLoc());
+}
+
 {IDENT} {
     auto loc = driver.currentTokenLoc();
     std::string text(yytext, yyleng);
     const auto& table = keywordTable();
     auto it = table.find(text);
     if (it != table.end()) {
-        if (text == "use" || text == "include") {
-            BEGIN(INCFILE);
-        }
         return it->second(loc);
     }
     return yy::parser::make_NAME(std::move(text), loc);
@@ -207,6 +216,11 @@ namespace oscad {
 
 void lexerBeginString(const std::string& source) {
     yy_scan_bytes(source.data(), static_cast<int>(source.size()));
+    // The start condition is global and outlives a parse: one that failed
+    // inside INCFILE or STR left the NEXT parse there, so it read text up
+    // to the first `<...>` -- even in a comment -- as a file name
+    // (BelfrySCAD #1138).
+    BEGIN(INITIAL);
 }
 
 void lexerEnd() {
