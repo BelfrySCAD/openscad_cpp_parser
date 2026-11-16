@@ -99,3 +99,32 @@ TEST(MixedUseInclude, MultipleMixed) {
     EXPECT_NE(dynamic_cast<IncludeStatement*>(ast[1].get()), nullptr);
     EXPECT_NE(dynamic_cast<UseStatement*>(ast[2].get()), nullptr);
 }
+
+// BelfrySCAD #1138: as in OpenSCAD, `use`/`include` are keywords only
+// before a `<`; anywhere else they are ordinary names.
+TEST(UseIncludeAsName, ParameterAndArgumentNamedInclude) {
+    auto ast = parseSrc("module m(include = undef, use = 1) cube(1);\nm(include = true);\nx = include;");
+    ASSERT_EQ(ast.size(), 3u);
+    EXPECT_NE(dynamic_cast<Assignment*>(ast[2].get()), nullptr);
+}
+
+TEST(UseIncludeAsName, IncludeWithSpaceBeforeAngle) {
+    auto ast = parseSrc("include\n  <a.scad>\nuse<b.scad>");
+    ASSERT_EQ(ast.size(), 2u);
+    EXPECT_EQ(dynamic_cast<IncludeStatement*>(ast[0].get())->filepath->val, "a.scad");
+    EXPECT_EQ(dynamic_cast<UseStatement*>(ast[1].get())->filepath->val, "b.scad");
+}
+
+TEST(UseIncludeAsName, KeywordLocationIsJustTheWord) {
+    auto ast = parseSrc("include   <a.scad>");
+    EXPECT_EQ(ast[0]->toString(), "include <a.scad>");
+}
+
+// A parse that fails inside a lexer start condition must not leave the next
+// parse in it: this used to read `<j@x.com>` in a comment as a file name.
+TEST(UseIncludeAsName, FailedParseDoesNotLeakLexerState) {
+    EXPECT_THROW(parseSrc("include"), std::exception);
+    EXPECT_THROW(parseSrc("x = \"unterminated"), std::exception);
+    auto ast = parseSrc("// Author <j@x.com>\ncube(1);");
+    ASSERT_EQ(ast.size(), 1u);
+}
